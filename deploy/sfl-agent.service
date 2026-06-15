@@ -1,0 +1,22 @@
+[Unit]
+Description=SFL Agent Web Chat
+#Documentation=file:///opt/sfl-agent/docs/DEPLOY.md
+After=network-online.target ollama.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USER
+Group=YOUR_USER
+WorkingDirectory=/var/www/projects/sfl-agent
+Environment=NODE_ENV=production
+EnvironmentFile=-/var/www/projects/sfl-agent/.env
+# Production: pnpm build → dist/web/main.js (không dùng tsx trong .bin)
+ExecStart=/usr/bin/env node dist/web/main.js
+Restart=on-failure
+RestartSec=5
+# Chat + MCP có thể chạy lâu
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target

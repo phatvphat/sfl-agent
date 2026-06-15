@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SFL Agent — Sunflower Land Chat</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">🌻</span>
+          <div>
+            <h1>SFL Agent</h1>
+            <p class="subtitle">Tra cứu Sunflower Land qua source code &amp; giá thị trường</p>
+          </div>
+        </div>
+        <div class="status" id="statusBar">
+          <span class="dot" id="statusDot"></span>
+          <span id="statusText">Đang kiểm tra...</span>
+        </div>
+      </header>
+
+      <main class="chat" id="chat"></main>
+
+      <footer class="composer">
+        <form id="chatForm">
+          <textarea
+            id="messageInput"
+            rows="2"
+            placeholder="Hỏi về Sunflower Land: game, giá tài nguyên, NFT, tỷ giá SFL..."
+            autocomplete="off"
+          ></textarea>
+          <button type="submit" id="sendBtn" aria-label="Gửi tin nhắn">
+            <span class="send-icon">↑</span>
+          </button>
+        </form>
+        <p class="hint">
+          Chỉ Sunflower Land · Ví dụ: &quot;Giá Iron?&quot; · &quot;1 SFL bao nhiêu USD?&quot; · &quot;Thời gian trồng sunflower?&quot;
+        </p>
+      </footer>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

@@ -1,0 +1,11 @@
+packages:
+  - .
+
+# pnpm 11+ blocks very new publishes (supply-chain). express pulls body-parser@2.x.
+minimumReleaseAgeExclude:
+  - body-parser
+
+# Replaces package.json "pnpm.onlyBuiltDependencies" (removed in pnpm 11).
+allowBuilds:
+  esbuild: true
+  sqlite3: true

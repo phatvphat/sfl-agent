@@ -1,0 +1,34 @@
+{
+  "name": "sfl-agent",
+  "version": "0.1.0",
+  "description": "MCP agent for researching Sunflower Land via source code and APIs",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/cli.ts",
+    "index": "tsx src/cli.ts index",
+    "index-nfts": "tsx src/cli.ts index-nfts",
+    "search": "tsx src/cli.ts search",
+    "mcp": "node scripts/start-mcp.mjs",
+    "web": "tsx src/web/main.ts",
+    "start": "node dist/web/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@cursor/sdk": "^1.0.16",
+    "@lancedb/lancedb": "^0.22.0",
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "apache-arrow": "^18.1.0",
+    "dotenv": "^16.5.0",
+    "simple-git": "^3.27.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.3",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
