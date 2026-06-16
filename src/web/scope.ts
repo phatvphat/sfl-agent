@@ -42,6 +42,17 @@ const ALLOW_PATTERNS: RegExp[] = [
   /\bweb3\b/i,
   /\bsource\s*code\b/i,
   /\bsfl\.world\b/i,
+  /\bsunflower-land\b/i,
+  /\bgit\b/i,
+  /\bchangelog\b/i,
+  /\bcommits?\b/i,
+  /\bpatch\s*notes?\b/i,
+  /\b(repo(sitory)?|indexed\s*repo)\b/i,
+  /\b(cập\s*nhật|cap\s*nhat)\b/i,
+  /\b(hôm\s*nay|hom\s*nay|hôm\s*qua|hom\s*qua|tuần\s*này|tuan\s*nay)\b/i,
+  /\b(mới\s*nhất|moi\s*nhat|latest\s*update)\b/i,
+  /\b(thay\s*đổi|thay\s*doi)\b/i,
+  /\b(lịch\s*sử|lich\s*su)\s*(git|commit)?\b/i,
   /\b(iron|wood|stone|gold|sunflower|pumpkin|carrot|egg|honey|crimstone|obsidian|oil|barley|beetroot)\b/i,
   /\b(axe|pickaxe|rod|shovel|workbench|deliver(y|ies))\b/i,
   /\b(pet|pets|bud|buds|mutant|skill|skills|boost|buff)\b/i,
@@ -69,6 +80,14 @@ const VIETNAMESE_ALLOW_PATTERNS: RegExp[] = [
   /\bcong\s*thuc\b/, // công thức / recipe
   /\bthu\s*hoach\b/, // thu hoạch / harvest
   /\btrong\s*cay\b/, // trồng cây / planting
+  /\bgit\b/,
+  /\bcap\s*nhat\b/, // cập nhật
+  /\bhom\s*nay\b/, // hôm nay
+  /\bhom\s*qua\b/, // hôm qua
+  /\bmoi\s*nhat\b/, // mới nhất
+  /\bthay\s*doi\b/, // thay đổi
+  /\bcommit\b/,
+  /\bchangelog\b/,
 ];
 
 /** Clear off-topic — block when matched and no allow signal. */
@@ -112,13 +131,13 @@ function isVietnamese(text: string): boolean {
 export function offTopicReply(message: string): string {
   if (isVietnamese(message)) {
     return (
-      "Mình chỉ hỗ trợ câu hỏi về **Sunflower Land** — gameplay, công thức craft, giá tài nguyên/NFT, tỷ giá SFL, source code game.\n\n" +
-      "Vui lòng đặt câu hỏi trong phạm vi game (ví dụ: *Giá gỗ/wood?*, *Công thức rìu?*, *Trading iron có lời không?*)."
+      "Mình chỉ hỗ trợ câu hỏi về **Sunflower Land** — gameplay, công thức craft, giá tài nguyên/NFT, tỷ giá SFL, source code, cập nhật git/changelog repo game.\n\n" +
+      "Vui lòng đặt câu hỏi trong phạm vi game (ví dụ: *Giá gỗ/wood?*, *Công thức rìu?*, *Hôm nay game cập nhật gì?*, *Cập nhật git hôm nay?*)."
     );
   }
   return (
-    "I only answer questions about **Sunflower Land** — gameplay, crafting, resource/NFT prices, SFL rates, and game source code.\n\n" +
-    "Please ask something in scope (e.g. *Iron marketplace price?*, *Axe recipe?*, *SFL to USD?*)."
+    "I only answer questions about **Sunflower Land** — gameplay, crafting, resource/NFT prices, SFL rates, game source code, and git/changelog updates.\n\n" +
+    "Please ask something in scope (e.g. *Iron marketplace price?*, *Axe recipe?*, *What changed in git today?*)."
   );
 }
 

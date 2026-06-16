@@ -159,6 +159,7 @@ Agent gọi API trực tiếp (`sfl_resource_prices`, `sfl_nft_prices`, `sfl_exc
 |------|--------|
 | `sfl_search` | Tìm kiếm ngữ nghĩa trên source + docs đã index |
 | `sfl_read_file` | Đọc file gốc từ repo clone (có line range) |
+| `sfl_git_log` | Lịch sử commit trên nhánh `main` (hôm nay, changelog, file đổi) |
 | `sfl_index` | Cập nhật repo + rebuild index source code |
 | `sfl_status` | Kiểm tra Ollama, số record LanceDB |
 | `sfl_resource_prices` | Giá tài nguyên P2P ([api/v1/prices](https://sfl.world/api/v1/prices)) |
@@ -186,6 +187,7 @@ pnpm dev search "iron mine recipe"
 | `OLLAMA_EMBED_MODEL` | `nomic-embed-text` |
 | `LANCEDB_PATH` | `./data/lancedb` |
 | `SFL_REPO_URL` | repo GitHub chính thức |
+| `SFL_REPO_BRANCH` | `main` (chỉ clone/pull nhánh này, full history) |
 | `CHUNK_SIZE` | `1000` (ký tự mỗi chunk) |
 | `MAX_EMBED_CHARS` | `4000` (giới hạn gửi Ollama, tránh lỗi context length) |
 | `SFL_PRICES_API_URL` | `https://sfl.world/api/v1/prices` |

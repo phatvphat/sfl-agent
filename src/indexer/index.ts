@@ -1,38 +1,10 @@
-import { access } from "node:fs/promises";
-import { simpleGit } from "simple-git";
 import { config } from "../config.js";
 import { dropIndexTable, getIndexedIds, getRecordCount } from "../db/lancedb.js";
 import { checkOllamaHealth } from "../embeddings/ollama.js";
+import { ensureRepo } from "../git/repo.js";
 import { indexKnowledgeIncremental } from "./chunker.js";
 
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export async function ensureRepo(onProgress?: (message: string) => void): Promise<string> {
-  const repoPath = config.repo.path;
-
-  if (await pathExists(joinGit(repoPath, ".git"))) {
-    onProgress?.(`Pulling latest changes in ${repoPath}`);
-    const git = simpleGit(repoPath);
-    await git.pull("origin", "main", ["--ff-only"]);
-    return repoPath;
-  }
-
-  onProgress?.(`Cloning ${config.repo.url} -> ${repoPath}`);
-  const git = simpleGit();
-  await git.clone(config.repo.url, repoPath, ["--depth", "1", "--branch", "main"]);
-  return repoPath;
-}
-
-function joinGit(base: string, segment: string): string {
-  return `${base.replace(/[/\\]+$/, "")}/${segment}`;
-}
+export { ensureRepo } from "../git/repo.js";
 
 export async function indexRepository(
   onProgress?: (message: string) => void,

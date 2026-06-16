@@ -20,6 +20,7 @@ export const config = {
   repo: {
     url: process.env.SFL_REPO_URL ?? "https://github.com/sunflower-land/sunflower-land.git",
     path: resolve(projectRoot, process.env.SFL_REPO_PATH ?? "./data/sunflower-land"),
+    branch: process.env.SFL_REPO_BRANCH ?? "main",
     includeGlobs: (process.env.INDEX_INCLUDE_GLOBS ??
       "src/**/*.ts,src/**/*.tsx,docs/**/*.md").split(","),
   },

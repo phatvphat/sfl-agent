@@ -18,6 +18,8 @@ import {
 } from "../apis/sfl-world.js";
 import { getRecordCount, searchKnowledge } from "../db/lancedb.js";
 import { checkOllamaHealth } from "../embeddings/ollama.js";
+import { formatGitLog, getGitLog } from "../git/log.js";
+import { getLocalCommitCount, repoGit } from "../git/repo.js";
 import { indexRepository } from "../indexer/index.js";
 import { indexNfts } from "../indexer/nfts.js";
 
@@ -119,6 +121,50 @@ server.tool(
 );
 
 server.tool(
+  "sfl_git_log",
+  "List recent commits on the Sunflower Land main branch (clone at SFL_REPO_PATH). Use for changelog, what changed today/recently, or commits touching a file. Dates accept git --since/--until syntax (e.g. 'today', '2026-06-16', '7 days ago').",
+  {
+    since: z
+      .string()
+      .optional()
+      .describe("Start of range (git --since), e.g. 'today', '2026-06-16', '7 days ago'"),
+    until: z
+      .string()
+      .optional()
+      .describe("End of range (git --until)"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(100)
+      .optional()
+      .describe("Max commits to return (default 30)"),
+    filePath: z
+      .string()
+      .optional()
+      .describe("Only commits that touched this path, e.g. src/features/game/types/game.ts"),
+  },
+  async ({ since, until, limit, filePath }) => {
+    try {
+      const result = await getGitLog({ since, until, limit, filePath });
+      const text = formatGitLog(result, { since, until, limit, filePath });
+      return { content: [{ type: "text", text }] };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Git log failed: ${message}. Run \`sfl_index\` or \`pnpm index\` to clone/update the repo.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+  },
+);
+
+server.tool(
   "sfl_index",
   "Clone/update sunflower-land repo and rebuild the LanceDB vector index. Run when source changes or index is empty.",
   {
@@ -162,11 +208,20 @@ server.tool(
       getRecordCount(),
     ]);
 
+    let gitLine = `- Git (${config.repo.branch}): not cloned — run \`sfl_index\``;
+    try {
+      const commitCount = await getLocalCommitCount(repoGit());
+      gitLine = `- Git (${config.repo.branch}): ${commitCount} commits local at ${config.repo.path}`;
+    } catch {
+      // repo not cloned yet
+    }
+
     const text = [
       "## SFL Agent Status",
       `- Ollama (${config.ollama.baseUrl}, model=${config.ollama.model}): ${ollamaOk ? "OK" : "UNREACHABLE"}`,
       `- LanceDB (${config.lancedb.path}): ${recordCount} records`,
       `- Repo path: ${config.repo.path}`,
+      gitLine,
       `- Prices API: ${config.apis.pricesUrl}`,
       `- Exchange API: ${config.apis.exchangeUrl}`,
       `- NFTs API: ${config.apis.nftsUrl}`,
