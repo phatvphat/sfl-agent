@@ -45,7 +45,7 @@ function agentOptions(): AgentOptions {
 
   return {
     apiKey: config.cursor.apiKey,
-    model: { id: config.cursor.model },
+    model: config.cursor.modelSelection,
     local: {
       cwd: config.projectRoot,
       settingSources: [],

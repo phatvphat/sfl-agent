@@ -1,10 +1,23 @@
 import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import type { ModelSelection } from "@cursor/sdk";
 
 loadEnv();
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
+
+function buildCursorModelSelection(): ModelSelection {
+  const id = process.env.CURSOR_MODEL ?? "composer-2.5";
+  const useFast = process.env.CURSOR_MODEL_FAST === "true";
+
+  // composer-2.5 defaults to the "fast" variant unless fast=false is set explicitly.
+  if (id === "composer-2.5" && !useFast) {
+    return { id, params: [{ id: "fast", value: "false" }] };
+  }
+
+  return { id };
+}
 
 export const config = {
   projectRoot,
@@ -41,6 +54,7 @@ export const config = {
   cursor: {
     apiKey: process.env.CURSOR_API_KEY,
     model: process.env.CURSOR_MODEL ?? "composer-2.5",
+    modelSelection: buildCursorModelSelection(),
   },
   web: {
     host: process.env.WEB_HOST ?? "127.0.0.1",

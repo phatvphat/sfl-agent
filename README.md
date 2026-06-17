@@ -32,6 +32,7 @@ Mở trình duyệt: **http://127.0.0.1:3847**
 |-------------|--------|
 | `CURSOR_API_KEY` | API key từ [Cursor Dashboard](https://cursor.com/dashboard) |
 | `CURSOR_MODEL` | Model agent (mặc định `composer-2.5`) |
+| `CURSOR_MODEL_FAST` | `false` = Composer 2.5 **standard**; `true` = **fast** (đắt hơn, nhanh hơn) |
 | `WEB_PORT` | Cổng web UI (mặc định `3847`) |
 
 Usage được tính theo plan Cursor (giống IDE Agent). API key **chỉ** nằm trên server — không đưa ra frontend.
