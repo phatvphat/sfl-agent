@@ -99,6 +99,63 @@ function createMsgTime(label, date) {
   return el;
 }
 
+async function copyToClipboard(text) {
+  if (!text) return false;
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return true;
+  }
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.style.position = "fixed";
+  ta.style.opacity = "0";
+  document.body.appendChild(ta);
+  ta.select();
+  const ok = document.execCommand("copy");
+  ta.remove();
+  return ok;
+}
+
+function createCopyBtn(getText) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "msg-copy";
+  btn.title = "Sao chép";
+  btn.setAttribute("aria-label", "Sao chép nội dung");
+  btn.innerHTML = '<span class="msg-copy-icon" aria-hidden="true">⎘</span>';
+  btn.addEventListener("click", async () => {
+    const text = typeof getText === "function" ? getText() : getText;
+    if (!text?.trim()) return;
+    try {
+      await copyToClipboard(text);
+      btn.classList.add("copied");
+      btn.title = "Đã sao chép";
+      const icon = btn.querySelector(".msg-copy-icon");
+      const prev = icon?.textContent ?? "⎘";
+      if (icon) icon.textContent = "✓";
+      window.setTimeout(() => {
+        btn.classList.remove("copied");
+        btn.title = "Sao chép";
+        if (icon) icon.textContent = prev;
+      }, 1200);
+    } catch {
+      btn.title = "Không sao chép được";
+      window.setTimeout(() => {
+        btn.title = "Sao chép";
+      }, 1200);
+    }
+  });
+  return btn;
+}
+
+function createMsgFooter(label, date, getCopyText) {
+  const footer = document.createElement("div");
+  footer.className = "msg-footer";
+  const time = createMsgTime(label, date);
+  footer.append(time, createCopyBtn(getCopyText));
+  return { footer, time };
+}
+
 function markReceived(ui, date = new Date()) {
   if (ui.receivedAt) return;
   ui.receivedAt = date;
@@ -109,6 +166,15 @@ function markReceived(ui, date = new Date()) {
 
 function createTurn(userText) {
   const sentAt = new Date();
+  const ui = {
+    copyText: "",
+    sentAt,
+    receivedAt: null,
+    toolCounts: new Map(),
+    hasText: false,
+    toolsFinished: false,
+  };
+
   const turn = document.createElement("div");
   turn.className = "turn";
 
@@ -117,7 +183,8 @@ function createTurn(userText) {
   const userContent = document.createElement("div");
   userContent.className = "msg-content";
   userContent.textContent = userText;
-  userMsg.append(userContent, createMsgTime("Gửi", sentAt));
+  const userFooter = createMsgFooter("Gửi", sentAt, () => userText);
+  userMsg.append(userContent, userFooter.footer);
 
   const activity = document.createElement("div");
   activity.className = "activity";
@@ -135,15 +202,15 @@ function createTurn(userText) {
   assistant.hidden = true;
   const body = document.createElement("div");
   body.className = "msg-body md-content";
-  const assistantTime = createMsgTime("Nhận", sentAt);
-  assistantTime.hidden = true;
-  assistant.append(body, assistantTime);
+  const assistantFooter = createMsgFooter("Nhận", sentAt, () => ui.copyText);
+  assistantFooter.time.hidden = true;
+  assistant.append(body, assistantFooter.footer);
 
   turn.append(userMsg, activity, assistant);
   chatEl.appendChild(turn);
   scrollToBottom(true);
 
-  return {
+  Object.assign(ui, {
     turn,
     activity,
     pills: activity.querySelector(".tool-pills"),
@@ -151,13 +218,10 @@ function createTurn(userText) {
     spinner: activity.querySelector(".spinner"),
     assistant,
     body,
-    assistantTime,
-    sentAt,
-    receivedAt: null,
-    toolCounts: new Map(),
-    hasText: false,
-    toolsFinished: false,
-  };
+    assistantTime: assistantFooter.time,
+  });
+
+  return ui;
 }
 
 function showActivity(ui, label) {
@@ -298,6 +362,7 @@ async function sendMessage(message) {
     if (renderTimer) return;
     renderTimer = requestAnimationFrame(() => {
       renderTimer = null;
+      ui.copyText = assistantText;
       ui.body.innerHTML = renderMarkdown(assistantText);
       scrollToBottom();
     });
@@ -316,7 +381,8 @@ async function sendMessage(message) {
       showAssistant(ui);
       markReceived(ui);
       ui.assistant.classList.add("error");
-      ui.body.textContent = `Lỗi HTTP ${res.status}`;
+      ui.copyText = `Lỗi HTTP ${res.status}`;
+      ui.body.textContent = ui.copyText;
       return;
     }
 
@@ -391,7 +457,8 @@ async function sendMessage(message) {
           showAssistant(ui);
           markReceived(ui);
           ui.assistant.classList.add("error");
-          ui.body.textContent = data.message ?? "Unknown error";
+          ui.copyText = data.message ?? "Unknown error";
+          ui.body.textContent = ui.copyText;
         }
 
         if (event === "done") {
@@ -410,7 +477,8 @@ async function sendMessage(message) {
     showAssistant(ui);
     markReceived(ui);
     ui.assistant.classList.add("error");
-    ui.body.textContent = err instanceof Error ? err.message : String(err);
+    ui.copyText = err instanceof Error ? err.message : String(err);
+    ui.body.textContent = ui.copyText;
   }
 
   dismissActivity(ui);
@@ -422,11 +490,13 @@ async function sendMessage(message) {
   if (assistantText) {
     markReceived(ui);
     showAssistant(ui);
+    ui.copyText = assistantText;
     ui.body.innerHTML = renderMarkdown(assistantText);
   } else if (!ui.body.textContent) {
     showAssistant(ui);
     markReceived(ui);
-    ui.body.textContent = "Không có nội dung trả lời.";
+    ui.copyText = "Không có nội dung trả lời.";
+    ui.body.textContent = ui.copyText;
   }
 
   sendBtn.disabled = false;

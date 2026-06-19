@@ -3,11 +3,14 @@ export interface ScopeCheckResult {
   reply?: string;
 }
 
-/** Game-related signals — at least one required (unless message is clearly off-topic). */
-const ALLOW_PATTERNS: RegExp[] = [
+/** Core Sunflower Land topics. */
+const TOPIC_PATTERNS: RegExp[] = [
   /\bsunflower\s*land\b/i,
   /\bsfl\b/i,
+  /\bsfl\.world\b/i,
+  /\bsunflower-land\b/i,
   /\bflower\s*token\b/i,
+  /\bweb3\b/i,
   /\bbumpkin\b/i,
   /\bgoblin\b/i,
   /\bmarketplace\b/i,
@@ -21,76 +24,71 @@ const ALLOW_PATTERNS: RegExp[] = [
   /\bgems?\b/i,
   /\bcoins?\b/i,
   /\bchapter\b/i,
+  /\broadmap\b/i,
+  /\blộ\s*trình\b/i,
   /\bkingdom\b/i,
   /\bisland\b/i,
-  /\bbumpkin\s*skills?\b/i,
-  /\bcraft(ing|ed)?\b/i,
-  /\bharvest/i,
-  /\bplant(ing|ed)?\b/i,
-  /\bmine|mining\b/i,
-  /\bfish(ing|ed)?\b/i,
-  /\bfarm(ing|ed)?\b/i,
+  /\bquest(s)?\b/i,
+  /\bevents?\b/i,
+  /\bseasons?\b/i,
+  /\bascension/i,
+  /\bnpcs?\b/i,
+  /\bplot\b/i,
+  /\btimeline\b/i,
+  /\b(craft(ing|ed)?|harvest|plant(ing|ed)?|mine|mining|fish(ing|ed)?|farm(ing|ed)?)\b/i,
   /\brecipe\b/i,
   /\bgrow\s*time\b/i,
   /\bfloor\s*price\b/i,
+  /\b(gi[aá]|market|exchange|usd|t[yỷ]\s*gi[aá]|trad(e|ing))\b/i,
   /\bbi[eê]n\s*l[iợ]i\s*nhu[aậ]n\b/i,
-  /\bt[yỷ]\s*gi[aá]\b/i,
-  /\bgi[aá]\b/i,
-  /\bmarket\b/i,
-  /\bexchange\b/i,
-  /\busd\b/i,
-  /\bweb3\b/i,
   /\bsource\s*code\b/i,
-  /\bsfl\.world\b/i,
-  /\bsunflower-land\b/i,
   /\bgit\b/i,
   /\bchangelog\b/i,
   /\bcommits?\b/i,
   /\bpatch\s*notes?\b/i,
   /\b(repo(sitory)?|indexed\s*repo)\b/i,
-  /\b(cập\s*nhật|cap\s*nhat)\b/i,
-  /\b(hôm\s*nay|hom\s*nay|hôm\s*qua|hom\s*qua|tuần\s*này|tuan\s*nay)\b/i,
-  /\b(mới\s*nhất|moi\s*nhat|latest\s*update)\b/i,
-  /\b(thay\s*đổi|thay\s*doi)\b/i,
-  /\b(lịch\s*sử|lich\s*su)\s*(git|commit)?\b/i,
+  /\b(cập\s*nhật|cap\s*nhat|hôm\s*nay|hom\s*nay|mới\s*nhất|moi\s*nhat|thay\s*đổi|thay\s*doi)\b/i,
   /\b(iron|wood|stone|gold|sunflower|pumpkin|carrot|egg|honey|crimstone|obsidian|oil|barley|beetroot)\b/i,
   /\b(axe|pickaxe|rod|shovel|workbench|deliver(y|ies))\b/i,
   /\b(pet|pets|bud|buds|mutant|skill|skills|boost|buff)\b/i,
   /\b(megastore|auction|timeshard|genesis)\b/i,
-  /\btrad(e|ing)\b/i,
   /\b(gỗ|sắt|đá|vàng|trứng|mật|dầu|bí|ngô|cà\s*rốt|lúa|mạ)\b/i,
-  /\btài\s*nguyên\b/i,
-  /\bcó\s*lời\b/i,
-  /\bmua\s*bán\b/i,
-  /\bcông\s*thức\b/i,
-  /\b(rìu|cuốc|cần\s*câu|xẻng)\b/i,
+  /\b(tài\s*nguyên|có\s*lời|mua\s*bán|công\s*thức|rìu|cuốc|cần\s*câu|xẻng)\b/i,
+  /\bapi\b/i,
 ];
 
-/** Vietnamese game terms on accent-stripped text (e.g. gỗ → go, sắt → sat). */
-const VIETNAMESE_ALLOW_PATTERNS: RegExp[] = [
-  /\bgo\b/, // gỗ / wood
-  /\bsat\b/, // sắt / iron
-  /\bvang\b/, // vàng / gold
-  /\btrung\b/, // trứng / egg
-  /\bmat\b/, // mật / honey
-  /\bdau\b/, // dầu / oil
-  /\btai\s*nguyen\b/, // tài nguyên / resources
-  /\bco\s*loi\b/, // có lời / profitable
-  /\bmua\s*ban\b/, // mua bán / trading
-  /\bcong\s*thuc\b/, // công thức / recipe
-  /\bthu\s*hoach\b/, // thu hoạch / harvest
-  /\btrong\s*cay\b/, // trồng cây / planting
-  /\bgit\b/,
-  /\bcap\s*nhat\b/, // cập nhật
-  /\bhom\s*nay\b/, // hôm nay
-  /\bhom\s*qua\b/, // hôm qua
-  /\bmoi\s*nhat\b/, // mới nhất
-  /\bthay\s*doi\b/, // thay đổi
-  /\bcommit\b/,
-  /\bchangelog\b/,
+/** Follow-up / detail requests (short messages in an SFL chat). */
+const FOLLOWUP_PATTERNS: RegExp[] = [
+  /\b(chi\s*tiết|chi\s*tiet|toàn\s*bộ|toan\s*bo)\b/i,
+  /\b(đào\s*sâu|dao\s*sau|rõ\s*hơn|ro\s*hon|cụ\s*thể|cu\s*the)\b/i,
+  /\b(thêm|them|nữa|nua|tiếp\s*tục|tiep\s*tuc)\b/i,
+  /\b(giúp\s*tôi|giup\s*toi|help\s*me)\b/i,
+  /\b(more\s*detail|dig\s*deeper|elaborate|expand|continue)\b/i,
+  /\b(lịch\s*trình|lich\s*trinh)\b/i,
 ];
 
-/** Clear off-topic — block when matched and no allow signal. */
+const VIETNAMESE_TOPIC_PATTERNS: RegExp[] = [
+  /\bgo\b/,
+  /\bsat\b/,
+  /\bvang\b/,
+  /\btrung\b/,
+  /\bmat\b/,
+  /\bdau\b/,
+  /\btai\s*nguyen\b/,
+  /\bco\s*loi\b/,
+  /\bmua\s*ban\b/,
+  /\bcong\s*thuc\b/,
+  /\bthu\s*hoach\b/,
+  /\btrong\s*cay\b/,
+  /\blo\s*trinh\b/,
+  /\bcap\s*nhat\b/,
+  /\bhom\s*nay\b/,
+  /\bthay\s*doi\b/,
+  /\bchi\s*tiet\b/,
+  /\btoan\s*bo\b/,
+  /\bdao\s*sau\b/,
+];
+
 const BLOCK_PATTERNS: RegExp[] = [
   /\b(write|debug|fix|refactor)\s+(my\s+)?(code|script|app|program)\b/i,
   /\b(python|javascript|typescript|java|c\+\+|golang|ruby|php)\b/i,
@@ -109,6 +107,8 @@ const BLOCK_PATTERNS: RegExp[] = [
   /\b(làm bài|giải bài|toán lớp|văn mẫu)\b/i,
 ];
 
+const MAX_FOLLOWUP_LEN = 180;
+
 function normalize(text: string): string {
   return text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
 }
@@ -118,8 +118,8 @@ function matchesAny(text: string, patterns: RegExp[]): boolean {
   return patterns.some((p) => p.test(text) || p.test(normalized));
 }
 
-function matchesVietnameseGameTerms(text: string): boolean {
-  return matchesAny(normalize(text), VIETNAMESE_ALLOW_PATTERNS);
+function isFollowUpIntent(text: string): boolean {
+  return text.trim().length <= MAX_FOLLOWUP_LEN && matchesAny(text, FOLLOWUP_PATTERNS);
 }
 
 function isVietnamese(text: string): boolean {
@@ -131,19 +131,16 @@ function isVietnamese(text: string): boolean {
 export function offTopicReply(message: string): string {
   if (isVietnamese(message)) {
     return (
-      "Mình chỉ hỗ trợ câu hỏi về **Sunflower Land** — gameplay, công thức craft, giá tài nguyên/NFT, tỷ giá SFL, source code, cập nhật git/changelog repo game.\n\n" +
-      "Vui lòng đặt câu hỏi trong phạm vi game (ví dụ: *Giá gỗ/wood?*, *Công thức rìu?*, *Hôm nay game cập nhật gì?*, *Cập nhật git hôm nay?*)."
+      "Mình chỉ hỗ trợ **Sunflower Land** — gameplay, roadmap/chapter, craft, giá tài nguyên/NFT, tỷ giá SFL, source code, git/changelog.\n\n" +
+      "Ví dụ: *Roadmap chapter hiện tại?*, *Giá Iron?*, *Chi tiết roadmap*, *Hôm nay cập nhật gì?*"
     );
   }
   return (
-    "I only answer questions about **Sunflower Land** — gameplay, crafting, resource/NFT prices, SFL rates, game source code, and git/changelog updates.\n\n" +
-    "Please ask something in scope (e.g. *Iron marketplace price?*, *Axe recipe?*, *What changed in git today?*)."
+    "I only answer **Sunflower Land** — gameplay, roadmap/chapters, prices, SFL rates, source code, git updates.\n\n" +
+    "Try: *Full roadmap details?*, *Iron price?*, *What changed in git today?*"
   );
 }
 
-/**
- * Server-side scope gate — blocks off-topic chat before calling Cursor agent.
- */
 export function checkChatScope(message: string): ScopeCheckResult {
   const trimmed = message.trim();
   if (!trimmed) {
@@ -151,14 +148,16 @@ export function checkChatScope(message: string): ScopeCheckResult {
   }
 
   const onTopic =
-    matchesAny(trimmed, ALLOW_PATTERNS) || matchesVietnameseGameTerms(trimmed);
+    matchesAny(trimmed, TOPIC_PATTERNS) ||
+    matchesAny(normalize(trimmed), VIETNAMESE_TOPIC_PATTERNS);
+  const followUp = isFollowUpIntent(trimmed);
   const offTopic = matchesAny(trimmed, BLOCK_PATTERNS);
 
-  if (offTopic && !onTopic) {
+  if (offTopic && !onTopic && !followUp) {
     return { allowed: false, reply: offTopicReply(trimmed) };
   }
 
-  if (onTopic) {
+  if (onTopic || followUp) {
     return { allowed: true };
   }
 

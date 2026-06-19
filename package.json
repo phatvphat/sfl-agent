@@ -21,6 +21,7 @@
     "@cursor/sdk": "^1.0.16",
     "@lancedb/lancedb": "^0.22.0",
     "@modelcontextprotocol/sdk": "^1.12.1",
+    "@vscode/ripgrep": "^1.18.0",
     "apache-arrow": "^18.1.0",
     "dotenv": "^16.5.0",
     "simple-git": "^3.27.0",
