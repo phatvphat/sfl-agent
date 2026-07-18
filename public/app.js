@@ -186,16 +186,7 @@ function createTurn(userText) {
   const userFooter = createMsgFooter("Gửi", sentAt, () => userText);
   userMsg.append(userContent, userFooter.footer);
 
-  const activity = document.createElement("div");
-  activity.className = "activity";
-  activity.hidden = true;
-  activity.innerHTML = `
-    <div class="activity-label">
-      <span class="spinner"></span>
-      <span class="activity-text">Đang xử lý...</span>
-    </div>
-    <div class="tool-pills"></div>
-  `;
+  const activity = createActivityElement();
 
   const assistant = document.createElement("div");
   assistant.className = "msg assistant";
@@ -212,27 +203,56 @@ function createTurn(userText) {
 
   Object.assign(ui, {
     turn,
-    activity,
-    pills: activity.querySelector(".tool-pills"),
-    activityText: activity.querySelector(".activity-text"),
-    spinner: activity.querySelector(".spinner"),
     assistant,
     body,
     assistantTime: assistantFooter.time,
   });
+  bindActivityRefs(ui, activity);
 
   return ui;
 }
 
-function showActivity(ui, label) {
-  ui.activity.hidden = false;
-  if (label) ui.activityText.textContent = label;
+function bindActivityRefs(ui, activity) {
+  ui.activity = activity;
+  ui.pills = activity.querySelector(".tool-pills");
+  ui.activityText = activity.querySelector(".activity-text");
+  ui.spinner = activity.querySelector(".spinner");
 }
 
+function createActivityElement() {
+  const activity = document.createElement("div");
+  activity.className = "activity";
+  activity.hidden = true;
+  activity.innerHTML = `
+    <div class="activity-label">
+      <span class="spinner"></span>
+      <span class="activity-text">Đang xử lý...</span>
+    </div>
+    <div class="tool-pills"></div>
+  `;
+  return activity;
+}
+
+function ensureActivity(ui) {
+  if (ui.activity?.isConnected) return;
+  const activity = createActivityElement();
+  ui.turn.insertBefore(activity, ui.assistant);
+  bindActivityRefs(ui, activity);
+}
+
+function showActivity(ui, label) {
+  ensureActivity(ui);
+  ui.activity.hidden = false;
+  ui.activity.classList.remove("collapsed");
+  if (ui.spinner) ui.spinner.hidden = false;
+  if (ui.pills) ui.pills.hidden = false;
+  if (label && ui.activityText) ui.activityText.textContent = label;
+}
+
+/** Hide activity but keep the DOM node so later tool events don't crash. */
 function dismissActivity(ui) {
-  if (ui.activity?.parentNode) {
-    ui.activity.remove();
-    ui.activity = null;
+  if (ui.activity) {
+    ui.activity.hidden = true;
   }
 }
 
@@ -244,20 +264,26 @@ function showAssistant(ui, options = {}) {
   ui.assistant.classList.remove("pending");
 }
 
-function updateTool(ui, { name, status, callId, label, args }) {
-  const displayName = label || resolveToolLabel(name, args);
-  if (!displayName) {
-    if (status === "running") showActivity(ui, "Đang tra cứu...");
-    return;
+function escapeToolKey(key) {
+  if (typeof CSS !== "undefined" && typeof CSS.escape === "function") {
+    return CSS.escape(key);
+  }
+  return key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function updateTool(ui, { name, status, label, args }) {
+  ensureActivity(ui);
+  const displayName = label || resolveToolLabel(name, args) || name || "tool";
+  showActivity(ui, "Đang tra cứu...");
+
+  if (!ui.pills) return;
+
+  const key = String(displayName);
+  if (status === "running") {
+    ui.toolCounts.set(key, (ui.toolCounts.get(key) ?? 0) + 1);
   }
 
-  showActivity(ui, status === "running" ? "Đang tra cứu..." : "Đang tra cứu...");
-
-  const key = displayName;
-  const count = (ui.toolCounts.get(key) ?? 0) + (status === "running" ? 1 : 0);
-  if (status === "running") ui.toolCounts.set(key, count);
-
-  let pill = ui.pills.querySelector(`[data-tool="${CSS.escape(key)}"]`);
+  let pill = ui.pills.querySelector(`[data-tool="${escapeToolKey(key)}"]`);
   if (!pill) {
     pill = document.createElement("span");
     pill.className = "tool-pill";
@@ -268,20 +294,22 @@ function updateTool(ui, { name, status, callId, label, args }) {
 
   const runCount = ui.toolCounts.get(key) ?? 1;
   const suffix = runCount > 1 ? ` ×${runCount}` : "";
-  pill.querySelector(".name").textContent = displayName + suffix;
+  const nameEl = pill.querySelector(".name");
+  const iconEl = pill.querySelector(".icon");
+  if (nameEl) nameEl.textContent = key + suffix;
 
   if (status === "running") {
     pill.className = "tool-pill running";
-    pill.querySelector(".icon").textContent = "◌";
+    if (iconEl) iconEl.textContent = "◌";
   } else {
     pill.className = "tool-pill done";
-    pill.querySelector(".icon").textContent = "✓";
+    if (iconEl) iconEl.textContent = "✓";
   }
 }
 
 function onToolsIdle(ui) {
   ui.toolsFinished = true;
-  if (!ui.hasText && ui.activity) {
+  if (!ui.hasText && ui.activity && !ui.activity.hidden && ui.activityText) {
     ui.activityText.textContent = "Đang soạn trả lời...";
   }
 }
@@ -293,9 +321,24 @@ function collapseActivitySummary(ui) {
   }
   const names = [...ui.toolCounts.keys()].join(", ");
   ui.activity.classList.add("collapsed");
-  ui.activityText.textContent = `Đã dùng: ${names}`;
-  ui.spinner.hidden = true;
-  ui.pills.hidden = true;
+  if (ui.activityText) ui.activityText.textContent = `Đã dùng: ${names}`;
+  if (ui.spinner) ui.spinner.hidden = true;
+  if (ui.pills) ui.pills.hidden = true;
+}
+
+/** Progress lines the model sometimes emits before tools — not a final answer. */
+function looksLikeStatusPreamble(text) {
+  const t = text.trim();
+  if (!t || t.length > 320) return false;
+  const normalized = t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+  return (
+    /^(dang|looking|searching|checking|let me|i('ll| will)|toi se|minh se|de minh)\b/.test(
+      normalized,
+    ) ||
+    /\b(dang\s+(tra\s*cuu|tim|xu\s*ly|soan|phan\s*tich)|tra\s*cuu|looking up|searching for)\b/.test(
+      normalized,
+    )
+  );
 }
 
 function showWelcome() {
@@ -357,14 +400,27 @@ async function sendMessage(message) {
   let toolRunning = 0;
   let toolsUsed = false;
   let thinkingText = "";
+  let streamFailed = false;
+  let streamFinished = false;
+  let reader = null;
+
+  const paintAssistant = (text) => {
+    ui.copyText = text;
+    try {
+      ui.body.innerHTML = renderMarkdown(text);
+    } catch (err) {
+      console.error("renderMarkdown failed:", err);
+      ui.body.textContent = text;
+    }
+    scrollToBottom();
+  };
 
   const scheduleRender = () => {
     if (renderTimer) return;
     renderTimer = requestAnimationFrame(() => {
       renderTimer = null;
-      ui.copyText = assistantText;
-      ui.body.innerHTML = renderMarkdown(assistantText);
-      scrollToBottom();
+      if (streamFailed) return;
+      paintAssistant(assistantText);
     });
   };
 
@@ -378,6 +434,7 @@ async function sendMessage(message) {
     });
 
     if (!res.ok || !res.body) {
+      streamFailed = true;
       showAssistant(ui);
       markReceived(ui);
       ui.assistant.classList.add("error");
@@ -386,7 +443,7 @@ async function sendMessage(message) {
       return;
     }
 
-    const reader = res.body.getReader();
+    reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
 
@@ -399,14 +456,18 @@ async function sendMessage(message) {
       buffer = blocks.pop() ?? "";
 
       for (const block of blocks) {
+        if (!block || block.startsWith(":")) continue;
+
         const lines = block.split("\n");
         let event = "message";
-        let dataLine = "";
+        const dataParts = [];
 
         for (const line of lines) {
-          if (line.startsWith("event: ")) event = line.slice(7);
-          if (line.startsWith("data: ")) dataLine = line.slice(6);
+          if (line.startsWith("event:")) event = line.slice(6).trim();
+          else if (line.startsWith("data:")) dataParts.push(line.slice(5).trimStart());
         }
+
+        const dataLine = dataParts.join("\n");
         if (!dataLine) continue;
 
         let data;
@@ -416,87 +477,153 @@ async function sendMessage(message) {
           continue;
         }
 
-        if (event === "text" && data.delta) {
-          assistantText = mergeAssistantText(assistantText, data.delta);
-          ui.assistant.hidden = false;
-          ui.hasText = true;
-          if (toolRunning > 0 || toolsUsed) {
+        try {
+          if (event === "retry") {
+            assistantText = "";
+            finalResult = "";
+            thinkingText = "";
+            toolRunning = 0;
+            toolsUsed = false;
+            streamFailed = false;
+            ui.hasText = false;
+            ui.receivedAt = null;
+            ui.assistantTime.hidden = true;
+            ui.toolCounts.clear();
+            ui.copyText = "";
+            ui.body.innerHTML = "";
+            ui.assistant.hidden = true;
+            ui.assistant.classList.remove("pending", "error");
+            if (ui.pills) ui.pills.innerHTML = "";
+            showActivity(ui, data.message || "Đang gọi lại tools...");
+            continue;
+          }
+
+          if (event === "text" && data.delta) {
+            assistantText = mergeAssistantText(assistantText, data.delta);
+            // Status preamble → activity only (not a finished answer bubble).
+            if (looksLikeStatusPreamble(assistantText) && !streamFinished) {
+              showActivity(ui, assistantText);
+              continue;
+            }
+
+            ui.assistant.hidden = false;
+            ui.hasText = true;
             ui.assistant.classList.add("pending");
-            showActivity(ui, thinkingText || "Đang tra cứu dữ liệu...");
-          } else {
+            showActivity(
+              ui,
+              thinkingText ||
+                (toolsUsed || toolRunning > 0
+                  ? "Đang tra cứu dữ liệu..."
+                  : "Đang xử lý..."),
+            );
+            scheduleRender();
+            continue;
+          }
+
+          if (event === "thinking" && data.text) {
+            thinkingText =
+              typeof data.text === "string" && data.text.startsWith(thinkingText)
+                ? data.text.trim()
+                : mergeAssistantText(thinkingText, data.text).trim();
+            const tip =
+              thinkingText.length > 160
+                ? `${thinkingText.slice(0, 160)}…`
+                : thinkingText;
+            showActivity(ui, tip || "Đang phân tích...");
+            continue;
+          }
+
+          if (event === "status" && data.message) {
+            showActivity(ui, data.message);
+            continue;
+          }
+
+          if (event === "tool") {
+            toolsUsed = true;
+            if (data.status === "running") {
+              toolRunning++;
+              updateTool(ui, data);
+            } else {
+              toolRunning = Math.max(0, toolRunning - 1);
+              updateTool(ui, data);
+              if (toolRunning === 0) onToolsIdle(ui);
+            }
+            continue;
+          }
+
+          if (event === "error") {
+            streamFailed = true;
+            showAssistant(ui);
+            markReceived(ui);
+            ui.assistant.classList.add("error");
+            ui.copyText = data.message ?? "Unknown error";
+            ui.body.textContent = ui.copyText;
+            continue;
+          }
+
+          if (event === "done") {
+            streamFinished = true;
+            if (data.result) {
+              finalResult = data.result;
+              assistantText = data.result;
+            }
+            markReceived(ui);
             ui.assistant.classList.remove("pending");
-            dismissActivity(ui);
+            if (data.status === "error" || data.status === "cancelled" || data.incomplete) {
+              streamFailed = true;
+              ui.assistant.classList.add("error");
+            }
+            if (toolsUsed) collapseActivitySummary(ui);
+            else dismissActivity(ui);
+            showAssistant(ui, { keepActivity: toolsUsed });
+            paintAssistant(assistantText || ui.copyText || "");
           }
-          scheduleRender();
-        }
-
-        if (event === "thinking" && data.text) {
-          thinkingText = mergeAssistantText(thinkingText, data.text).trim();
-          if (toolRunning > 0 || !ui.hasText) {
-            showActivity(ui, thinkingText || "Đang phân tích...");
+        } catch (eventErr) {
+          console.error("SSE event handler error:", event, eventErr);
+          try {
+            showActivity(ui, "Đang xử lý...");
+          } catch {
+            /* ignore */
           }
-        }
-
-        if (event === "status" && data.message) {
-          showActivity(ui, data.message);
-        }
-
-        if (event === "tool") {
-          toolsUsed = true;
-          if (data.status === "running") {
-            toolRunning++;
-            updateTool(ui, data);
-          } else {
-            toolRunning = Math.max(0, toolRunning - 1);
-            updateTool(ui, data);
-            if (toolRunning === 0) onToolsIdle(ui);
-          }
-        }
-
-        if (event === "error") {
-          showAssistant(ui);
-          markReceived(ui);
-          ui.assistant.classList.add("error");
-          ui.copyText = data.message ?? "Unknown error";
-          ui.body.textContent = ui.copyText;
-        }
-
-        if (event === "done") {
-          if (data.result) {
-            finalResult = data.result;
-            assistantText = data.result;
-          }
-          markReceived(ui);
-          ui.assistant.classList.remove("pending");
-          showAssistant(ui);
-          scheduleRender();
         }
       }
     }
   } catch (err) {
+    streamFailed = true;
     showAssistant(ui);
     markReceived(ui);
     ui.assistant.classList.add("error");
     ui.copyText = err instanceof Error ? err.message : String(err);
     ui.body.textContent = ui.copyText;
+  } finally {
+    try {
+      reader?.releaseLock?.();
+    } catch {
+      /* ignore */
+    }
   }
 
-  dismissActivity(ui);
+  if (!streamFailed) {
+    if (finalResult) assistantText = finalResult;
 
-  if (finalResult) {
-    assistantText = finalResult;
-  }
-
-  if (assistantText) {
-    markReceived(ui);
-    showAssistant(ui);
-    ui.copyText = assistantText;
-    ui.body.innerHTML = renderMarkdown(assistantText);
-  } else if (!ui.body.textContent) {
-    showAssistant(ui);
-    markReceived(ui);
-    ui.copyText = "Không có nội dung trả lời.";
-    ui.body.textContent = ui.copyText;
+    if (assistantText) {
+      if (!streamFinished) markReceived(ui);
+      ui.assistant.classList.remove("pending");
+      showAssistant(ui, { keepActivity: toolsUsed && Boolean(ui.activity) });
+      if (toolsUsed && ui.activity && !ui.activity.hidden) {
+        collapseActivitySummary(ui);
+      } else {
+        dismissActivity(ui);
+      }
+      paintAssistant(assistantText);
+    } else if (!ui.body.textContent) {
+      showAssistant(ui);
+      markReceived(ui);
+      ui.copyText = "Không có nội dung trả lời.";
+      ui.body.textContent = ui.copyText;
+    }
+  } else {
+    dismissActivity(ui);
   }
 
   sendBtn.disabled = false;

@@ -23,12 +23,19 @@ import { getLocalCommitCount, repoGit } from "../git/repo.js";
 import { indexRepository } from "../indexer/index.js";
 import { indexNfts } from "../indexer/nfts.js";
 
+function truncateSnippet(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n...[truncated]`;
+}
+
 function formatSearchResults(
   results: Awaited<ReturnType<typeof searchKnowledge>>,
 ): string {
   if (results.length === 0) {
     return "No results found. Run `pnpm index` first to index the Sunflower Land repository.";
   }
+
+  const maxSnippet = config.mcp.searchSnippetChars;
 
   return results
     .map((r, i) => {
@@ -42,7 +49,7 @@ function formatSearchResults(
         .filter(Boolean)
         .join(", ");
 
-      return `### Result ${i + 1} — ${location}\n${meta}\n\n${r.text}`;
+      return `### Result ${i + 1} — ${location}\n${meta}\n\n${truncateSnippet(r.text, maxSnippet)}`;
     })
     .join("\n\n---\n\n");
 }
@@ -51,16 +58,28 @@ async function readSourceFile(filePath: string, startLine?: number, endLine?: nu
   const absolute = join(config.repo.path, filePath);
   const content = await readFile(absolute, "utf-8");
   const lines = content.split(/\r?\n/);
+  const maxLines = config.mcp.readMaxLines;
 
-  const start = Math.max(1, startLine ?? 1);
-  const end = Math.min(lines.length, endLine ?? lines.length);
+  let start = Math.max(1, startLine ?? 1);
+  let end = Math.min(lines.length, endLine ?? lines.length);
+  let truncatedNote = "";
+
+  if (endLine === undefined && startLine === undefined) {
+    end = Math.min(lines.length, maxLines);
+    if (lines.length > maxLines) {
+      truncatedNote = `\n\n[truncated: showing first ${maxLines} of ${lines.length} lines — pass startLine/endLine for more]`;
+    }
+  } else if (end - start + 1 > maxLines) {
+    end = start + maxLines - 1;
+    truncatedNote = `\n\n[truncated: capped to ${maxLines} lines — narrow the range if needed]`;
+  }
 
   const slice = lines.slice(start - 1, end).map((line, idx) => {
     const lineNo = start + idx;
     return `${String(lineNo).padStart(5, " ")}| ${line}`;
   });
 
-  return `File: ${filePath} (lines ${start}-${end})\n\n${slice.join("\n")}`;
+  return `File: ${filePath} (lines ${start}-${end})\n\n${slice.join("\n")}${truncatedNote}`;
 }
 
 const server = new McpServer({
@@ -70,10 +89,16 @@ const server = new McpServer({
 
 server.tool(
   "sfl_search",
-  "Semantic search across indexed Sunflower Land source code and docs. Use for game mechanics, items, recipes, constants, UI logic, etc.",
+  "Semantic search across indexed Sunflower Land source code and docs. Use for game mechanics, items, recipes, constants, UI logic, etc. Keep limit small to reduce tokens.",
   {
     query: z.string().describe("Natural language or keyword query about Sunflower Land"),
-    limit: z.number().int().min(1).max(20).optional().describe("Max results (default 8)"),
+    limit: z
+      .number()
+      .int()
+      .min(1)
+      .max(20)
+      .optional()
+      .describe(`Max results (default ${config.mcp.searchDefaultLimit}, soft max ${config.mcp.searchMaxLimit})`),
     docType: z
       .enum(["source", "doc", "api"])
       .optional()
@@ -84,7 +109,11 @@ server.tool(
       .describe("Filter by file path substring, e.g. 'features/crops'"),
   },
   async ({ query, limit, docType, filePath }) => {
-    const results = await searchKnowledge(query, { limit, docType, filePath });
+    const capped =
+      limit === undefined
+        ? config.mcp.searchDefaultLimit
+        : Math.min(limit, config.mcp.searchMaxLimit);
+    const results = await searchKnowledge(query, { limit: capped, docType, filePath });
     return {
       content: [{ type: "text", text: formatSearchResults(results) }],
     };
@@ -93,7 +122,7 @@ server.tool(
 
 server.tool(
   "sfl_read_file",
-  "Read a specific file from the cloned Sunflower Land repo with optional line range.",
+  "Read a file from the cloned Sunflower Land repo. Prefer a tight startLine/endLine (large ranges are capped).",
   {
     filePath: z
       .string()

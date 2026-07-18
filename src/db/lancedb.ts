@@ -108,7 +108,7 @@ export async function searchKnowledge(
   }
 
   const vector = await embedQuery(query);
-  const limit = options.limit ?? 8;
+  const limit = options.limit ?? config.mcp.searchDefaultLimit;
 
   const mapRows = (rows: Record<string, unknown>[]) =>
     rows.map((row) => ({

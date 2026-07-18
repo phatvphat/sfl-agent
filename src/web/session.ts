@@ -16,6 +16,9 @@ interface SessionEntry {
 
 const sessions = new Map<string, SessionEntry>();
 
+/** Agent ids that already received SFL_SYSTEM_INSTRUCTIONS in this process. */
+const primedAgentIds = new Set<string>();
+
 let sharedAgent: SDKAgent | null = null;
 let sharedAgentResumed = false;
 let warmupPromise: Promise<void> | null = null;
@@ -59,11 +62,25 @@ async function createAgent(): Promise<SDKAgent> {
 }
 
 async function disposeAgent(agent: SDKAgent): Promise<void> {
+  primedAgentIds.delete(agent.agentId);
   try {
     await agent[Symbol.asyncDispose]();
   } catch {
     agent.close();
   }
+}
+
+/**
+ * Attach system instructions only on the first outbound message per agent.
+ * Later turns (and follow-ups) send the raw text to avoid duplicating the prompt
+ * in conversation history (major cache/token cost).
+ */
+function formatOutboundMessage(agentId: string, message: string): string {
+  if (primedAgentIds.has(agentId)) {
+    return message;
+  }
+  primedAgentIds.add(agentId);
+  return wrapUserMessage(message);
 }
 
 async function resetSharedAgent(log?: (message: string) => void): Promise<void> {
@@ -115,8 +132,10 @@ export function getWarmupStatus() {
     warmAgent: config.web.warmAgent,
     reuseAgent: config.web.reuseAgent,
     persistChatContext: config.web.persistChatContext,
+    autoFollowUp: config.web.autoFollowUp,
     agentResumed: sharedAgentResumed,
     agentId: sharedAgent?.agentId ?? null,
+    instructionsPrimed: sharedAgent ? primedAgentIds.has(sharedAgent.agentId) : false,
     sessionCount: sessions.size,
   };
 }
@@ -161,7 +180,7 @@ export async function warmupAgent(log?: (message: string) => void): Promise<void
     if (config.web.warmMcpPing) {
       log?.("Pinging MCP via sfl_status...");
       const run = await sharedAgent.send(
-        wrapUserMessage("Call sfl_status only. Reply with exactly one word: ready"),
+        formatOutboundMessage(sharedAgent.agentId, "Call sfl_status only. Reply with exactly one word: ready"),
       );
       await run.wait();
       log?.("MCP ping complete");
@@ -212,7 +231,7 @@ export async function getOrCreateSession(sessionId: string): Promise<SessionEntr
 
 export async function sendChatMessage(sessionId: string, message: string) {
   const { agent } = await getOrCreateSession(sessionId);
-  return agent.send(wrapUserMessage(message));
+  return agent.send(formatOutboundMessage(agent.agentId, message));
 }
 
 export function listSessions(): Array<{ sessionId: string; agentId: string; lastUsedAt: number }> {

@@ -31,31 +31,43 @@ async function embedOne(prompt: string): Promise<number[]> {
 
   for (const maxChars of limits) {
     const trimmed = truncateForEmbedding(prompt, maxChars);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 30_000);
 
-    const response = await fetch(`${config.ollama.baseUrl}/api/embeddings`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: config.ollama.model,
-        prompt: trimmed,
-        options: { num_ctx: 8192 },
-      }),
-    });
+    try {
+      const response = await fetch(`${config.ollama.baseUrl}/api/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: config.ollama.model,
+          prompt: trimmed,
+          options: { num_ctx: 8192 },
+        }),
+        signal: controller.signal,
+      });
 
-    if (response.ok) {
-      const data = (await response.json()) as OllamaEmbeddingsResponse;
-      if (data.embedding?.length) {
-        return data.embedding;
+      if (response.ok) {
+        const data = (await response.json()) as OllamaEmbeddingsResponse;
+        if (data.embedding?.length) {
+          return data.embedding;
+        }
+        lastError = "response missing embedding vector";
+        continue;
       }
-      lastError = "response missing embedding vector";
-      continue;
-    }
 
-    const body = await response.text();
-    lastError = body;
+      const body = await response.text();
+      lastError = body;
 
-    if (!isContextLengthError(response.status, body)) {
-      throw new Error(`Ollama embeddings failed (${response.status}): ${body}`);
+      if (!isContextLengthError(response.status, body)) {
+        throw new Error(`Ollama embeddings failed (${response.status}): ${body}`);
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        throw new Error("Ollama embeddings timed out after 30s");
+      }
+      throw error;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

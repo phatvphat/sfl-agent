@@ -65,7 +65,7 @@ export const config = {
     sharedAgent: process.env.WEB_SHARED_AGENT !== "false",
     /** Optional: send a tiny prompt at startup to fully warm MCP (uses API quota) */
     warmMcpPing: process.env.WEB_WARM_MCP_PING === "true",
-    /** Reject off-topic chat server-side before calling Cursor agent */
+    /** Soft gate: block clearly off-topic chat before calling Cursor agent (default allow) */
     scopeCheck: process.env.WEB_SCOPE_CHECK !== "false",
     /** Reuse the in-memory shared agent for the lifetime of `pnpm web` */
     reuseAgent: process.env.WEB_REUSE_AGENT !== "false",
@@ -76,6 +76,20 @@ export const config = {
     persistChatContext: process.env.WEB_PERSIST_CHAT_CONTEXT === "true",
     /** Optional: resume a specific agent id (same server process / in-memory store only) */
     agentId: process.env.WEB_AGENT_ID?.trim() || undefined,
+    /**
+     * If the agent ends with a status-only reply (no tools), send one follow-up.
+     * Costs a second run — set false to save quota.
+     */
+    autoFollowUp: process.env.WEB_AUTO_FOLLOWUP !== "false",
+  },
+  mcp: {
+    /** Default / max results for sfl_search (keeps tool payloads small) */
+    searchDefaultLimit: Number(process.env.MCP_SEARCH_LIMIT ?? 4),
+    searchMaxLimit: Number(process.env.MCP_SEARCH_MAX_LIMIT ?? 8),
+    /** Max chars per search snippet in tool output */
+    searchSnippetChars: Number(process.env.MCP_SEARCH_SNIPPET_CHARS ?? 600),
+    /** Max lines returned by sfl_read_file when range is missing or too wide */
+    readMaxLines: Number(process.env.MCP_READ_MAX_LINES ?? 200),
   },
 } as const;
 

@@ -5,6 +5,7 @@ import { config } from "../config.js";
 import { getRecordCount } from "../db/lancedb.js";
 import { checkOllamaHealth } from "../embeddings/ollama.js";
 import { localAgentStore } from "./cursor-setup.js";
+import { FOLLOWUP_COMPLETE_PROMPT, looksLikeStatusPreamble } from "./incomplete.js";
 import { purgeFinishedRun } from "./memory-local-agent-store.js";
 import { closeAllSessions, beginBrowserSession, getWarmupStatus, sendChatMessage, warmupAgent } from "./session.js";
 import { checkChatScope } from "./scope.js";
@@ -33,7 +34,14 @@ function sendJson(res: ServerResponse, status: number, data: unknown) {
 }
 
 function writeSse(res: ServerResponse, event: string, data: unknown) {
-  res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  try {
+    res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    res.write(
+      `event: error\ndata: ${JSON.stringify({ message: `SSE write failed: ${message}` })}\n\n`,
+    );
+  }
 }
 
 async function serveStatic(pathname: string, res: ServerResponse): Promise<boolean> {
@@ -109,6 +117,70 @@ function resolveToolLabelFromEvent(event: {
   return name === "mcp" ? null : name;
 }
 
+interface StreamStats {
+  lastAssistantText: string;
+  toolsUsed: boolean;
+}
+
+async function pipeRunStream(
+  res: ServerResponse,
+  run: Awaited<ReturnType<typeof sendChatMessage>>,
+): Promise<StreamStats> {
+  let lastAssistantText = "";
+  let toolsUsed = false;
+
+  for await (const event of run.stream()) {
+    switch (event.type) {
+      case "assistant":
+        for (const block of event.message.content) {
+          if (block.type === "text" && block.text) {
+            const full = block.text;
+            const delta = full.startsWith(lastAssistantText)
+              ? full.slice(lastAssistantText.length)
+              : full;
+            lastAssistantText = full.startsWith(lastAssistantText)
+              ? full
+              : lastAssistantText + full;
+            if (delta) writeSse(res, "text", { delta });
+          }
+        }
+        break;
+      case "thinking":
+        if (event.text) {
+          writeSse(res, "thinking", { text: event.text });
+        }
+        break;
+      case "tool_call": {
+        toolsUsed = true;
+        const label = resolveToolLabelFromEvent(event);
+        // Do not forward raw args — they can be huge / non-JSON-safe and stall the UI.
+        writeSse(res, "tool", {
+          name: event.name,
+          label,
+          status: event.status,
+          callId: event.call_id,
+        });
+        break;
+      }
+      case "status":
+        writeSse(res, "status", { status: event.status, message: event.message });
+        break;
+      default:
+        break;
+    }
+  }
+
+  return { lastAssistantText, toolsUsed };
+}
+
+function isIncompleteReply(stats: StreamStats, resultText: string | undefined): boolean {
+  const text = (resultText ?? stats.lastAssistantText).trim();
+  if (!text) return true;
+  // Status-only preamble = aborted mid-answer (even if a tool started)
+  if (looksLikeStatusPreamble(text)) return true;
+  return false;
+}
+
 async function handleChat(req: IncomingMessage, res: ServerResponse) {
   let body: { sessionId?: string; message?: string };
   try {
@@ -164,57 +236,42 @@ async function handleChat(req: IncomingMessage, res: ServerResponse) {
   }, 15_000);
 
   try {
-    const run = await sendChatMessage(sessionId, message);
+    let run = await sendChatMessage(sessionId, message);
     writeSse(res, "run", { runId: run.id, agentId: run.agentId });
 
-    let lastAssistantText = "";
+    let stats = await pipeRunStream(res, run);
+    let result = await run.wait();
+    await purgeFinishedRun(localAgentStore, run.agentId, run.id);
 
-    for await (const event of run.stream()) {
-      switch (event.type) {
-        case "assistant":
-          for (const block of event.message.content) {
-            if (block.type === "text" && block.text) {
-              const full = block.text;
-              const delta = full.startsWith(lastAssistantText)
-                ? full.slice(lastAssistantText.length)
-                : full;
-              lastAssistantText = full.startsWith(lastAssistantText)
-                ? full
-                : lastAssistantText + full;
-              if (delta) writeSse(res, "text", { delta });
-            }
-          }
-          break;
-        case "thinking":
-          if (event.text) {
-            writeSse(res, "thinking", { text: event.text });
-          }
-          break;
-        case "tool_call": {
-          const label = resolveToolLabelFromEvent(event);
-          writeSse(res, "tool", {
-            name: event.name,
-            label,
-            status: event.status,
-            callId: event.call_id,
-            args: event.args,
-          });
-          break;
-        }
-        case "status":
-          writeSse(res, "status", { status: event.status, message: event.message });
-          break;
-        default:
-          break;
-      }
+    if (
+      config.web.autoFollowUp &&
+      result.status === "finished" &&
+      isIncompleteReply(stats, result.result)
+    ) {
+      writeSse(res, "retry", {
+        reason: "incomplete_status",
+        message: "Agent dừng giữa chừng — đang gọi lại tools...",
+      });
+
+      run = await sendChatMessage(sessionId, FOLLOWUP_COMPLETE_PROMPT);
+      writeSse(res, "run", { runId: run.id, agentId: run.agentId, followUp: true });
+      stats = await pipeRunStream(res, run);
+      result = await run.wait();
+      await purgeFinishedRun(localAgentStore, run.agentId, run.id);
     }
 
-    const result = await run.wait();
-    await purgeFinishedRun(localAgentStore, run.agentId, run.id);
+    const finalText = result.result ?? stats.lastAssistantText;
+    const incomplete =
+      result.status === "finished" && isIncompleteReply(stats, finalText);
+
     writeSse(res, "done", {
-      status: result.status,
-      result: result.result,
+      status: incomplete ? "error" : result.status,
+      result: incomplete
+        ? "Agent chưa trả lời xong (chỉ báo đang tra cứu). Thử hỏi lại hoặc kiểm tra Ollama/MCP."
+        : finalText,
       durationMs: result.durationMs,
+      incomplete,
+      toolsUsed: stats.toolsUsed,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
