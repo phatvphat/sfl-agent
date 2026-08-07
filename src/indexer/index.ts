@@ -4,8 +4,6 @@ import { checkOllamaHealth } from "../embeddings/ollama.js";
 import { ensureRepo } from "../git/repo.js";
 import { indexKnowledgeIncremental } from "./chunker.js";
 
-export { ensureRepo } from "../git/repo.js";
-
 export async function indexRepository(
   onProgress?: (message: string) => void,
   options: { force?: boolean } = {},

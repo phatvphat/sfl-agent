@@ -5,10 +5,9 @@ import { config } from "../config.js";
 import { getRecordCount } from "../db/lancedb.js";
 import { checkOllamaHealth } from "../embeddings/ollama.js";
 import { localAgentStore } from "./cursor-setup.js";
-import { FOLLOWUP_COMPLETE_PROMPT, looksLikeStatusPreamble } from "./incomplete.js";
 import { purgeFinishedRun } from "./memory-local-agent-store.js";
-import { closeAllSessions, beginBrowserSession, getWarmupStatus, sendChatMessage, warmupAgent } from "./session.js";
-import { checkChatScope } from "./scope.js";
+import { closeAllSessions, beginBrowserSession, getWarmupStatus, sendChatMessage } from "./session.js";
+import { startAutoIndex, stopAutoIndex } from "./auto-index.js";
 
 const PUBLIC_DIR = join(config.projectRoot, "public");
 
@@ -117,17 +116,11 @@ function resolveToolLabelFromEvent(event: {
   return name === "mcp" ? null : name;
 }
 
-interface StreamStats {
-  lastAssistantText: string;
-  toolsUsed: boolean;
-}
-
 async function pipeRunStream(
   res: ServerResponse,
   run: Awaited<ReturnType<typeof sendChatMessage>>,
-): Promise<StreamStats> {
+): Promise<string> {
   let lastAssistantText = "";
-  let toolsUsed = false;
 
   for await (const event of run.stream()) {
     switch (event.type) {
@@ -151,9 +144,7 @@ async function pipeRunStream(
         }
         break;
       case "tool_call": {
-        toolsUsed = true;
         const label = resolveToolLabelFromEvent(event);
-        // Do not forward raw args — they can be huge / non-JSON-safe and stall the UI.
         writeSse(res, "tool", {
           name: event.name,
           label,
@@ -170,15 +161,7 @@ async function pipeRunStream(
     }
   }
 
-  return { lastAssistantText, toolsUsed };
-}
-
-function isIncompleteReply(stats: StreamStats, resultText: string | undefined): boolean {
-  const text = (resultText ?? stats.lastAssistantText).trim();
-  if (!text) return true;
-  // Status-only preamble = aborted mid-answer (even if a tool started)
-  if (looksLikeStatusPreamble(text)) return true;
-  return false;
+  return lastAssistantText;
 }
 
 async function handleChat(req: IncomingMessage, res: ServerResponse) {
@@ -203,26 +186,6 @@ async function handleChat(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
-  if (config.web.scopeCheck) {
-    const scope = checkChatScope(message);
-    if (!scope.allowed && scope.reply) {
-      res.writeHead(200, {
-        "Content-Type": "text/event-stream; charset=utf-8",
-        "Cache-Control": "no-cache, no-transform",
-        Connection: "keep-alive",
-      });
-      writeSse(res, "started", { sessionId });
-      writeSse(res, "text", { delta: scope.reply });
-      writeSse(res, "done", {
-        status: "finished",
-        result: scope.reply,
-        scopeRejected: true,
-      });
-      res.end();
-      return;
-    }
-  }
-
   res.writeHead(200, {
     "Content-Type": "text/event-stream; charset=utf-8",
     "Cache-Control": "no-cache, no-transform",
@@ -236,42 +199,17 @@ async function handleChat(req: IncomingMessage, res: ServerResponse) {
   }, 15_000);
 
   try {
-    let run = await sendChatMessage(sessionId, message);
+    const run = await sendChatMessage(sessionId, message);
     writeSse(res, "run", { runId: run.id, agentId: run.agentId });
 
-    let stats = await pipeRunStream(res, run);
-    let result = await run.wait();
+    const lastAssistantText = await pipeRunStream(res, run);
+    const result = await run.wait();
     await purgeFinishedRun(localAgentStore, run.agentId, run.id);
 
-    if (
-      config.web.autoFollowUp &&
-      result.status === "finished" &&
-      isIncompleteReply(stats, result.result)
-    ) {
-      writeSse(res, "retry", {
-        reason: "incomplete_status",
-        message: "Agent dừng giữa chừng — đang gọi lại tools...",
-      });
-
-      run = await sendChatMessage(sessionId, FOLLOWUP_COMPLETE_PROMPT);
-      writeSse(res, "run", { runId: run.id, agentId: run.agentId, followUp: true });
-      stats = await pipeRunStream(res, run);
-      result = await run.wait();
-      await purgeFinishedRun(localAgentStore, run.agentId, run.id);
-    }
-
-    const finalText = result.result ?? stats.lastAssistantText;
-    const incomplete =
-      result.status === "finished" && isIncompleteReply(stats, finalText);
-
     writeSse(res, "done", {
-      status: incomplete ? "error" : result.status,
-      result: incomplete
-        ? "Agent chưa trả lời xong (chỉ báo đang tra cứu). Thử hỏi lại hoặc kiểm tra Ollama/MCP."
-        : finalText,
+      status: result.status,
+      result: result.result ?? lastAssistantText,
       durationMs: result.durationMs,
-      incomplete,
-      toolsUsed: stats.toolsUsed,
     });
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -330,22 +268,13 @@ export async function startWebServer(): Promise<void> {
     server.listen(config.web.port, config.web.host, () => resolve());
   });
 
-  const url = `http://${config.web.host}:${config.web.port}`;
-  console.log(`SFL Agent web UI: ${url}`);
+  console.log(`SFL Agent web UI: http://${config.web.host}:${config.web.port}`);
 
-  if (config.web.warmAgent && config.cursor.apiKey && config.web.persistChatContext) {
-    warmupAgent((msg) => console.log(msg)).catch((error) => {
-      console.error(
-        "Agent warmup failed:",
-        error instanceof Error ? error.message : error,
-      );
-    });
-  } else if (!config.cursor.apiKey) {
-    console.warn("Skipping agent warmup — CURSOR_API_KEY not set");
-  }
+  startAutoIndex();
 
   const shutdown = async () => {
     console.log("\nShutting down...");
+    stopAutoIndex();
     await closeAllSessions();
     server.close();
     process.exit(0);

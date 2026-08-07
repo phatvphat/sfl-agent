@@ -32,7 +32,7 @@ async function embedOne(prompt: string): Promise<number[]> {
   for (const maxChars of limits) {
     const trimmed = truncateForEmbedding(prompt, maxChars);
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 30_000);
+    const timer = setTimeout(() => controller.abort(), 120_000);
 
     try {
       const response = await fetch(`${config.ollama.baseUrl}/api/embeddings`, {
@@ -41,7 +41,8 @@ async function embedOne(prompt: string): Promise<number[]> {
         body: JSON.stringify({
           model: config.ollama.model,
           prompt: trimmed,
-          options: { num_ctx: 8192 },
+          // nomic-embed-text is ~2k tokens; large num_ctx wastes CPU/RAM on N100-class hosts
+          options: { num_ctx: config.indexing.embedNumCtx },
         }),
         signal: controller.signal,
       });
@@ -63,7 +64,7 @@ async function embedOne(prompt: string): Promise<number[]> {
       }
     } catch (error) {
       if (error instanceof Error && error.name === "AbortError") {
-        throw new Error("Ollama embeddings timed out after 30s");
+        throw new Error("Ollama embeddings timed out after 120s");
       }
       throw error;
     } finally {
@@ -74,6 +75,10 @@ async function embedOne(prompt: string): Promise<number[]> {
   throw new Error(`Ollama embeddings failed (500): ${lastError}`);
 }
 
+/**
+ * Embed texts with limited concurrency.
+ * Default concurrency=1: parallel embeds thrash weak CPUs (e.g. Intel N100) and are slower overall.
+ */
 export async function embedTexts(
   texts: string[],
   kind: EmbedKind = "document",
@@ -81,12 +86,27 @@ export async function embedTexts(
   if (texts.length === 0) return [];
 
   const prompts = texts.map((t) => prefixText(t, kind));
-  return Promise.all(prompts.map((prompt) => embedOne(prompt)));
+  const concurrency = Math.max(1, config.indexing.embedConcurrency);
+  const vectors: number[][] = new Array(prompts.length);
+
+  let next = 0;
+  async function worker() {
+    while (next < prompts.length) {
+      const i = next++;
+      vectors[i] = await embedOne(prompts[i]!);
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, prompts.length) }, () => worker()),
+  );
+
+  return vectors;
 }
 
 export async function embedQuery(text: string): Promise<number[]> {
   const [vector] = await embedTexts([text], "query");
-  return vector;
+  return vector!;
 }
 
 export async function checkOllamaHealth(): Promise<boolean> {

@@ -24,8 +24,10 @@ export interface ExchangeResponse {
   coins: Record<string, { sfl: number; coin: number; usd: number; pol: number }>;
 }
 
-let pricesCache: { data: PricesResponse; fetchedAt: number } | null = null;
-let exchangeCache: { data: ExchangeResponse; fetchedAt: number } | null = null;
+type CacheEntry<T> = { data: T; fetchedAt: number };
+
+let pricesCache: CacheEntry<PricesResponse> | null = null;
+let exchangeCache: CacheEntry<ExchangeResponse> | null = null;
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url, {
@@ -40,8 +42,20 @@ async function fetchJson<T>(url: string): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-function isFresh(fetchedAt: number): boolean {
-  return Date.now() - fetchedAt < CACHE_TTL_MS;
+async function cachedFetch<T>(
+  cache: CacheEntry<T> | null,
+  url: string,
+  force: boolean,
+  setCache: (entry: CacheEntry<T>) => void,
+): Promise<T & { fetchedAt: number }> {
+  if (!force && cache && Date.now() - cache.fetchedAt < CACHE_TTL_MS) {
+    return { ...cache.data, fetchedAt: cache.fetchedAt };
+  }
+
+  const data = await fetchJson<T>(url);
+  const fetchedAt = Date.now();
+  setCache({ data, fetchedAt });
+  return { ...data, fetchedAt };
 }
 
 /** dd/mm/yyyy HH:mm:ss in local timezone — always include time for API freshness */
@@ -72,25 +86,15 @@ export type PricesResult = PricesResponse & { fetchedAt: number };
 export type ExchangeResult = ExchangeResponse & { fetchedAt: number };
 
 export async function getPrices(force = false): Promise<PricesResult> {
-  if (!force && pricesCache && isFresh(pricesCache.fetchedAt)) {
-    return { ...pricesCache.data, fetchedAt: pricesCache.fetchedAt };
-  }
-
-  const data = await fetchJson<PricesResponse>(config.apis.pricesUrl);
-  const fetchedAt = Date.now();
-  pricesCache = { data, fetchedAt };
-  return { ...data, fetchedAt };
+  return cachedFetch(pricesCache, config.apis.pricesUrl, force, (entry) => {
+    pricesCache = entry;
+  });
 }
 
 export async function getExchange(force = false): Promise<ExchangeResult> {
-  if (!force && exchangeCache && isFresh(exchangeCache.fetchedAt)) {
-    return { ...exchangeCache.data, fetchedAt: exchangeCache.fetchedAt };
-  }
-
-  const data = await fetchJson<ExchangeResponse>(config.apis.exchangeUrl);
-  const fetchedAt = Date.now();
-  exchangeCache = { data, fetchedAt };
-  return { ...data, fetchedAt };
+  return cachedFetch(exchangeCache, config.apis.exchangeUrl, force, (entry) => {
+    exchangeCache = entry;
+  });
 }
 
 function normalizeName(value: string): string {
@@ -118,7 +122,7 @@ function findResourcePrice(
   return null;
 }
 
-export function searchResources(
+function searchResources(
   prices: PricesResponse,
   resource: string,
   market: MarketType = "p2p",
@@ -249,15 +253,12 @@ export function formatExchange(options: {
   return lines.join("\n").trim();
 }
 
-export function sflToUsd(amountSfl: number, exchange: ExchangeResponse): number {
-  return amountSfl * exchange.sfl.usd;
-}
-
+/** Convert an SFL amount to USD using the current exchange rate. */
 export function resourceToUsd(
-  resourcePrice: number,
+  amountSfl: number,
   exchange: ExchangeResponse,
 ): number {
-  return resourcePrice * exchange.sfl.usd;
+  return amountSfl * exchange.sfl.usd;
 }
 
 export type NftCollection = "collectibles" | "wearables";
@@ -281,7 +282,7 @@ export interface NftsResponse {
 
 export type NftsResult = NftsResponse & { fetchedAt: number };
 
-let nftsCache: { data: NftsResponse; fetchedAt: number } | null = null;
+let nftsCache: CacheEntry<NftsResponse> | null = null;
 
 export function flattenNfts(data: NftsResponse): NftItem[] {
   return [...data.collectibles, ...data.wearables].filter(
@@ -290,14 +291,9 @@ export function flattenNfts(data: NftsResponse): NftItem[] {
 }
 
 export async function getNfts(force = false): Promise<NftsResult> {
-  if (!force && nftsCache && isFresh(nftsCache.fetchedAt)) {
-    return { ...nftsCache.data, fetchedAt: nftsCache.fetchedAt };
-  }
-
-  const data = await fetchJson<NftsResponse>(config.apis.nftsUrl);
-  const fetchedAt = Date.now();
-  nftsCache = { data, fetchedAt };
-  return { ...data, fetchedAt };
+  return cachedFetch(nftsCache, config.apis.nftsUrl, force, (entry) => {
+    nftsCache = entry;
+  });
 }
 
 export function formatNftRecordText(item: NftItem, updatedAt: number): string {
@@ -400,7 +396,7 @@ export function formatNftPrices(options: {
     lines.push(formatNftListingLine(item));
     if (includeUsd && exchange) {
       lines.push(
-        `USD estimate (@ $${exchange.sfl.usd}/SFL): ~$${nftToUsd(item.floor, exchange).toFixed(4)} floor`,
+        `USD estimate (@ $${exchange.sfl.usd}/SFL): ~$${resourceToUsd(item.floor, exchange).toFixed(4)} floor`,
       );
     }
     return lines.join("\n");
@@ -431,7 +427,7 @@ export function formatNftPrices(options: {
   for (const item of matches) {
     lines.push(formatNftListingLine(item));
     if (includeUsd && exchange) {
-      lines.push(`  USD floor ~$${nftToUsd(item.floor, exchange).toFixed(4)}`);
+      lines.push(`  USD floor ~$${resourceToUsd(item.floor, exchange).toFixed(4)}`);
     }
   }
 
@@ -445,8 +441,4 @@ function formatNftListingLine(item: NftItem): string {
       : " | has boost"
     : "";
   return `- **${item.name}** (${item.collection}): floor **${item.floor} SFL**, last sale ${item.lastSalePrice} SFL, supply ${item.supply}${boost}`;
-}
-
-export function nftToUsd(floorSfl: number, exchange: ExchangeResponse): number {
-  return floorSfl * exchange.sfl.usd;
 }

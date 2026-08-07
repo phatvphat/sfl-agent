@@ -32,46 +32,6 @@ MCP (Cursor IDE):
 `);
 }
 
-async function runStatus() {
-  const ollamaOk = await checkOllamaHealth();
-  const count = await getRecordCount();
-  console.log(`Ollama: ${ollamaOk ? "OK" : "DOWN"}`);
-  console.log(`Indexed records: ${count}`);
-}
-
-
-async function runSearch(query: string) {
-  const results = await searchKnowledge(query, { limit: 5 });
-  if (results.length === 0) {
-    console.log("No results. Run `pnpm index` first.");
-    return;
-  }
-
-  for (const r of results) {
-    console.log(`\n[${r.score.toFixed(4)}] ${r.filePath}:${r.startLine}-${r.endLine}`);
-    console.log(r.text.slice(0, 400) + (r.text.length > 400 ? "..." : ""));
-  }
-}
-
-async function runPrices(resource?: string) {
-  const prices = await getPrices();
-  console.log(formatResourcePrices({ prices, resource }));
-}
-
-async function runExchange() {
-  const exchange = await getExchange();
-  console.log(formatExchange({ exchange, fetchedAt: exchange.fetchedAt }));
-}
-
-async function runIndexNfts() {
-  await indexNfts((msg) => console.log(msg), { refresh: true });
-}
-
-async function runNfts(name?: string) {
-  const nfts = await getNfts();
-  console.log(formatNftPrices({ nfts, name, limit: 50 }));
-}
-
 async function main() {
   switch (command) {
     case "index": {
@@ -80,27 +40,46 @@ async function main() {
       break;
     }
     case "index-nfts":
-      await runIndexNfts();
+      await indexNfts((msg) => console.log(msg), { refresh: true });
       break;
-    case "search":
+    case "search": {
       if (!args[0]) {
         console.error("Usage: pnpm search \"your query\"");
         process.exit(1);
       }
-      await runSearch(args.join(" "));
+      const results = await searchKnowledge(args.join(" "), { limit: 5 });
+      if (results.length === 0) {
+        console.log("No results. Run `pnpm index` first.");
+        break;
+      }
+      for (const r of results) {
+        console.log(`\n[${r.score.toFixed(4)}] ${r.filePath}:${r.startLine}-${r.endLine}`);
+        console.log(r.text.slice(0, 400) + (r.text.length > 400 ? "..." : ""));
+      }
       break;
-    case "prices":
-      await runPrices(args.join(" ") || undefined);
+    }
+    case "prices": {
+      const prices = await getPrices();
+      console.log(formatResourcePrices({ prices, resource: args.join(" ") || undefined }));
       break;
-    case "exchange":
-      await runExchange();
+    }
+    case "exchange": {
+      const exchange = await getExchange();
+      console.log(formatExchange({ exchange, fetchedAt: exchange.fetchedAt }));
       break;
-    case "nfts":
-      await runNfts(args.join(" ") || undefined);
+    }
+    case "nfts": {
+      const nfts = await getNfts();
+      console.log(formatNftPrices({ nfts, name: args.join(" ") || undefined, limit: 50 }));
       break;
-    case "status":
-      await runStatus();
+    }
+    case "status": {
+      const ollamaOk = await checkOllamaHealth();
+      const count = await getRecordCount();
+      console.log(`Ollama: ${ollamaOk ? "OK" : "DOWN"}`);
+      console.log(`Indexed records: ${count}`);
       break;
+    }
     case undefined:
     case "help":
     case "--help":

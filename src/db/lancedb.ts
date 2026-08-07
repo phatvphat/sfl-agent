@@ -31,10 +31,6 @@ function normalizeRecord(record: KnowledgeRecord): Record<string, unknown> {
   };
 }
 
-function normalizeRecords(records: KnowledgeRecord[]): Record<string, unknown>[] {
-  return records.map(normalizeRecord);
-}
-
 async function getDb(): Promise<lancedb.Connection> {
   if (!dbPromise) {
     dbPromise = lancedb.connect(config.lancedb.path);
@@ -42,7 +38,7 @@ async function getDb(): Promise<lancedb.Connection> {
   return dbPromise;
 }
 
-export async function openTable() {
+async function openTable() {
   const db = await getDb();
   const names = await db.tableNames();
 
@@ -65,7 +61,7 @@ export async function createOrReplaceTable(records: KnowledgeRecord[]) {
     throw new Error("Cannot create table with zero records");
   }
 
-  return db.createTable(config.lancedb.tableName, normalizeRecords(records));
+  return db.createTable(config.lancedb.tableName, records.map(normalizeRecord));
 }
 
 export async function dropIndexTable(): Promise<void> {
@@ -94,7 +90,7 @@ export async function saveRecordBatch(records: KnowledgeRecord[]): Promise<void>
     return;
   }
 
-  await table.add(normalizeRecords(records));
+  await table.add(records.map(normalizeRecord));
 }
 
 export async function searchKnowledge(

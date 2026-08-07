@@ -190,8 +190,10 @@ function createDiscardingRunEventsStore(): LocalAgentStoreRunEvents {
 }
 
 /**
- * In-process SDK store: keeps one shared agent's conversation in RAM while
- * `pnpm web` runs. Nothing is written under data/cursor-agents/.
+ * In-process Cursor SDK store (RAM only).
+ * The SDK needs a LocalAgentStore to hold agent/run/checkpoint state while
+ * `pnpm web` is running. This implementation never writes under data/cursor-agents/.
+ * Conversation lives only for the process lifetime — reload / new tab = new agent.
  */
 export function createMemoryLocalAgentStore(): LocalAgentStore {
   const agents = new Map<string, LocalAgentDocument>();

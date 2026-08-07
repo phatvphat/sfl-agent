@@ -19,27 +19,19 @@ pnpm web
 
 Mở trình duyệt: **http://127.0.0.1:3847**
 
-**Tăng tốc phản hồi:** mặc định `pnpm web` sẽ **pre-warm** Cursor agent + MCP ngay khi khởi động (không cần đợi tin nhắn đầu tiên). Dùng chung một agent (`WEB_SHARED_AGENT=true`) cho mọi phiên chat.
-
-| Biến `.env` | Mặc định | Mô tả |
-|-------------|----------|--------|
-| `WEB_WARM_AGENT` | `true` | Tạo agent + MCP khi server start |
-| `WEB_SHARED_AGENT` | `true` | Một agent dùng chung (nhanh hơn, phù hợp dùng cá nhân) |
-| `WEB_REUSE_AGENT` | `true` | Resume agent cũ khi restart `pnpm web` (không tạo agent mới mỗi lần) |
-| `WEB_WARM_MCP_PING` | `false` | Gửi prompt nhỏ lúc startup để warm MCP (tốn quota) |
-
 | Biến `.env` | Mô tả |
 |-------------|--------|
 | `CURSOR_API_KEY` | API key từ [Cursor Dashboard](https://cursor.com/dashboard) |
 | `CURSOR_MODEL` | Model agent (mặc định `composer-2.5`) |
 | `CURSOR_MODEL_FAST` | `false` = Composer 2.5 **standard**; `true` = **fast** (đắt hơn, nhanh hơn) |
+| `WEB_HOST` | Host bind (mặc định `127.0.0.1`) |
 | `WEB_PORT` | Cổng web UI (mặc định `3847`) |
 
 Usage được tính theo plan Cursor (giống IDE Agent). API key **chỉ** nằm trên server — không đưa ra frontend.
 
-**Cursor SDK (web):** mặc định **mỗi lần tải lại trang** gọi `POST /api/session`, hủy agent cũ và xóa checkpoint trong RAM — hội thoại không giữ lại giữa các lần mở tab/reload. Trong cùng một lần mở trang, các tin nhắn tiếp theo vẫn multi-turn. Muốn giữ context qua reload: `WEB_PERSIST_CHAT_CONTEXT=true`. Không ghi file dưới `data/cursor-agents/`.
+**Cursor SDK (web):** mỗi tab / mỗi lần reload gọi `POST /api/session` → session id mới → agent Cursor riêng (không chia context giữa các tab). Reload mất lịch sử chat. Trong cùng một tab, các tin nhắn vẫn multi-turn. State chỉ nằm trong RAM process — không ghi file dưới `data/cursor-agents/`.
 
-**MCP sfl-agent khi nào chạy?** `pnpm web` chỉ khởi động HTTP server. Process MCP **không** chạy ngay — Cursor SDK **spawn** `scripts/start-mcp.mjs` khi bạn **gửi tin nhắn chat đầu tiên** (mỗi session). Tắt `pnpm web` → MCP cũng tắt theo.
+**MCP sfl-agent khi nào chạy?** `pnpm web` chỉ khởi động HTTP server. Process MCP **không** chạy ngay — Cursor SDK **spawn** `scripts/start-mcp.mjs` khi tab gửi tin nhắn đầu tiên. Tắt `pnpm web` → MCP cũng tắt theo.
 
 ## Kiến trúc
 
@@ -199,7 +191,7 @@ API responses được cache 5 phút trong memory để giảm số lần gọi.
 
 ## Deploy lên server
 
-Xem **[docs/DEPLOY.md](docs/DEPLOY.md)** — cài Node + Ollama, copy source/index, systemd, firewall LAN.
+Xem **[docs/DEPLOY.md](docs/DEPLOY.md)** — cài Node + Ollama, copy source/index, systemd, **auto-index trong web** (hoặc crontab), firewall LAN.
 
 Tóm tắt:
 

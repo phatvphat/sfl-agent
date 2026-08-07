@@ -67,7 +67,7 @@ function extractSymbol(lines: string[], startIndex: number): string | undefined 
   return undefined;
 }
 
-export interface TextChunk {
+interface TextChunk {
   text: string;
   startLine: number;
   endLine: number;
@@ -75,7 +75,7 @@ export interface TextChunk {
   heading?: string;
 }
 
-export function chunkText(content: string, filePath: string): TextChunk[] {
+function chunkText(content: string): TextChunk[] {
   const lines = content.split(/\r?\n/);
   const chunks: TextChunk[] = [];
   const { chunkSize, chunkOverlap } = config.indexing;
@@ -149,7 +149,6 @@ export function chunkText(content: string, filePath: string): TextChunk[] {
     });
   }
 
-  void filePath;
   return chunks;
 }
 
@@ -160,24 +159,17 @@ function makeRecordId(filePath: string, startLine: number, endLine: number): str
     .slice(0, 24);
 }
 
-export interface IncrementalIndexOptions {
-  indexedIds: Set<string>;
-  onProgress?: (message: string) => void;
-}
-
-export interface IncrementalIndexResult {
-  added: number;
-  skipped: number;
-}
-
 /**
  * Index repo incrementally: embed in batches and persist each batch to LanceDB.
  * On resume, chunks whose id already exists in LanceDB are skipped (no duplicates).
  */
 export async function indexKnowledgeIncremental(
   repoPath: string,
-  options: IncrementalIndexOptions,
-): Promise<IncrementalIndexResult> {
+  options: {
+    indexedIds: Set<string>;
+    onProgress?: (message: string) => void;
+  },
+): Promise<{ added: number; skipped: number }> {
   const { indexedIds, onProgress } = options;
   const { batchSize } = config.indexing;
   const files = await walkFiles(repoPath, repoPath);
@@ -231,7 +223,7 @@ export async function indexKnowledgeIncremental(
 
     const content = await readFile(absolutePath, "utf-8");
     const relPath = relative(repoPath, absolutePath).split(sep).join("/");
-    const chunks = chunkText(content, relPath);
+    const chunks = chunkText(content);
     if (chunks.length === 0) continue;
 
     const docType = detectDocType(relPath);

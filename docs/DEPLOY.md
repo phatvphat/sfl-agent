@@ -18,7 +18,9 @@ Trình duyệt (LAN)  →  sfl-agent :3847  →  Cursor API (cloud)
 | sfl-agent (Node) | Web UI + MCP |
 | LanceDB + index | Source code đã chunk (thư mục `data/`) |
 
-Index lần đầu trên server có thể mất khá lâu tùy CPU/RAM — có thể copy sẵn `data/lancedb` từ máy dev.
+Index lần đầu trên server **CPU yếu (Intel N100, không GPU)** sẽ chậm vì Ollama embed chạy thuần CPU — **nên copy sẵn `data/lancedb` từ máy dev** thay vì `pnpm index` lại trên server.
+
+Nếu vẫn phải index trên server: giữ `EMBED_CONCURRENCY=1` (mặc định). Trước đây app từng bắn 16 embed song song → full 4 core nhưng chậm hơn tuần tự.
 
 ---
 
@@ -107,8 +109,14 @@ CURSOR_MODEL=composer-2.5
 # Lắng nghe mọi interface trong LAN (không chỉ localhost)
 WEB_HOST=0.0.0.0
 WEB_PORT=3847
-WEB_WARM_AGENT=true
-WEB_SHARED_AGENT=true
+
+# CPU-only (N100): giữ concurrency=1
+EMBED_CONCURRENCY=1
+EMBED_NUM_CTX=2048
+
+# Index nền trong web process (mặc định bật — tắt nếu dùng crontab)
+WEB_AUTO_INDEX=true
+WEB_AUTO_INDEX_MINUTES=10
 ```
 
 Giữ nguyên `LANCEDB_PATH`, `SFL_REPO_PATH` mặc định (`./data/...`).
@@ -133,7 +141,48 @@ pnpm dev search "iron mine"
 
 ---
 
-## 5. Chạy thử tay
+## 5. Tự cập nhật index (khuyên dùng: trong web server)
+
+Khi `pnpm web` / `pnpm start` chạy, process web **tự** `git pull` + embed incremental nền:
+
+- Lần đầu ~3 giây sau khi listen
+- Sau đó mỗi `WEB_AUTO_INDEX_MINUTES` (mặc định **10**)
+- Có khóa chống chồng job (bỏ qua nếu lần trước chưa xong)
+
+```env
+WEB_AUTO_INDEX=true
+WEB_AUTO_INDEX_MINUTES=10
+```
+
+Log: `journalctl -u sfl-agent -f` (hoặc stdout của `pnpm web`) — dòng `[auto-index] ...`.
+
+Tắt (nếu dùng crontab/PM2 thay thế — **không chạy cả hai**):
+
+```env
+WEB_AUTO_INDEX=false
+```
+
+### (Tuỳ chọn) Crontab — chỉ khi không dùng auto-index trong web
+
+```bash
+mkdir -p /opt/sfl-agent/logs
+crontab -e
+```
+
+```cron
+*/10 * * * * cd /opt/sfl-agent && /usr/bin/flock -n /tmp/sfl-agent-index.lock /usr/bin/env PATH="/usr/bin:$HOME/.local/share/pnpm:$PATH" pnpm index >> /opt/sfl-agent/logs/index-cron.log 2>&1
+```
+
+### Lưu ý
+
+- Nên có sẵn `data/lancedb` (copy hoặc index tay lần đầu) trước khi dựa vào auto-index.
+- Auto-index **không** cập nhật code repo **sfl-agent** — chỉ sync clone `data/sunflower-land` + LanceDB.
+- Đừng `--force` định kỳ.
+- NFT (`pnpm index-nfts`) không cần lịch — giá live qua API.
+
+---
+
+## 6. Chạy thử tay
 
 ```bash
 pnpm build
@@ -145,7 +194,7 @@ Từ máy khác trong LAN: `http://<server-ip>:3847`
 
 ---
 
-## 6. Systemd (tự khởi động)
+## 7. Systemd (tự khởi động)
 
 Build trước khi bật service (systemd chạy `node dist/web/main.js`, không dùng `tsx`):
 
@@ -167,7 +216,7 @@ journalctl -u sfl-agent -f
 
 ---
 
-## 7. Firewall
+## 8. Firewall
 
 Chỉ mở port trong LAN, **không** expose ra internet công cộng (có `CURSOR_API_KEY`):
 
@@ -180,7 +229,7 @@ sudo ufw enable
 
 ---
 
-## 8. (Tuỳ chọn) Nginx + HTTPS / Basic auth
+## 9. (Tuỳ chọn) Nginx + HTTPS / Basic auth
 
 Nếu cần truy cập từ ngoài hoặc thêm mật khẩu, đặt Nginx reverse proxy trước `127.0.0.1:3847` và bật TLS (Let's Encrypt) + `auth_basic`.
 
@@ -203,14 +252,15 @@ server {
 
 ---
 
-## 9. Cập nhật sau này
+## 10. Cập nhật sau này
 
 ```bash
 cd /opt/sfl-agent
 git pull
 pnpm install
 pnpm build
-pnpm index          # cập nhật source index (incremental)
+# Index source: web process tự làm nếu WEB_AUTO_INDEX=true (mục 5)
+pnpm index   # chỉ cần nếu tắt auto-index
 sudo systemctl restart sfl-agent
 ```
 
@@ -218,7 +268,7 @@ API giá/NFT/tỷ giá **không cần index** — luôn live từ sfl.world.
 
 ---
 
-## 10. Xử lý sự cố
+## 11. Xử lý sự cố
 
 | Triệu chứng | Kiểm tra |
 |-------------|----------|
@@ -226,9 +276,12 @@ API giá/NFT/tỷ giá **không cần index** — luôn live từ sfl.world.
 | `dist/web/main.js` không tồn tại | `cd /opt/sfl-agent && pnpm build` |
 | `Ollama off` trên UI | `systemctl status ollama`, `curl localhost:11434/api/tags` |
 | `Thiếu API key` | `CURSOR_API_KEY` trong `.env`, restart service |
-| Chat chậm | Bình thường với Cursor API; `WEB_WARM_AGENT=true` giúp tin đầu nhanh hơn |
+| Chat chậm | Bình thường với Cursor API; tin đầu tiên tạo agent + spawn MCP nên chậm hơn tin sau |
 | `sqlite3` lỗi | `pnpm install` lại trên Linux |
 | Không vào được từ máy khác | `WEB_HOST=0.0.0.0`, firewall port 3847 |
+| Cron index không chạy | Chỉ khi `WEB_AUTO_INDEX=false`. `crontab -l`, log; cron thường thiếu `PATH` |
+| Auto-index không chạy | `WEB_AUTO_INDEX` không phải `false`; xem log `[auto-index]`; Ollama phải up |
+| Index chồng / CPU full lâu | Một cơ chế thôi (web **hoặc** cron); xem `[auto-index] skip` |
 
 ---
 
@@ -239,5 +292,6 @@ API giá/NFT/tỷ giá **không cần index** — luôn live từ sfl.world.
 - [ ] Source tại `/opt/sfl-agent`, `pnpm install`, `pnpm build`
 - [ ] `.env` có `CURSOR_API_KEY`, `WEB_HOST=0.0.0.0`
 - [ ] `data/lancedb` đã có (copy hoặc `pnpm index`)
+- [ ] `WEB_AUTO_INDEX=true` (hoặc crontab — không cả hai)
 - [ ] `systemctl enable sfl-agent`
 - [ ] Firewall chỉ LAN

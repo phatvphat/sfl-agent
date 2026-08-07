@@ -40,9 +40,14 @@ export const config = {
   indexing: {
     chunkSize: Number(process.env.CHUNK_SIZE ?? 1000),
     chunkOverlap: Number(process.env.CHUNK_OVERLAP ?? 150),
-    batchSize: 16,
-    /** Max chars sent to Ollama per embed (nomic-embed-text ~2048 tokens default) */
+    /** Chunks per LanceDB write; embeds inside a batch use embedConcurrency */
+    batchSize: Number(process.env.INDEX_BATCH_SIZE ?? 8),
+    /** Parallel Ollama embed calls. Keep 1 on CPU-only boxes (N100); GPU can try 2–4. */
+    embedConcurrency: Number(process.env.EMBED_CONCURRENCY ?? 1),
+    /** Max chars sent to Ollama per embed (nomic-embed-text ~2048 tokens) */
     maxEmbedChars: Number(process.env.MAX_EMBED_CHARS ?? 4000),
+    /** Ollama num_ctx for embeds — keep near model size to avoid CPU thrash */
+    embedNumCtx: Number(process.env.EMBED_NUM_CTX ?? 2048),
   },
   apis: {
     pricesUrl:
@@ -59,28 +64,13 @@ export const config = {
   web: {
     host: process.env.WEB_HOST ?? "127.0.0.1",
     port: Number(process.env.WEB_PORT ?? 3847),
-    /** Pre-create Cursor agent (+ MCP) when web server starts */
-    warmAgent: process.env.WEB_WARM_AGENT !== "false",
-    /** Single shared agent for all chat sessions (faster, local single-user) */
-    sharedAgent: process.env.WEB_SHARED_AGENT !== "false",
-    /** Optional: send a tiny prompt at startup to fully warm MCP (uses API quota) */
-    warmMcpPing: process.env.WEB_WARM_MCP_PING === "true",
-    /** Soft gate: block clearly off-topic chat before calling Cursor agent (default allow) */
-    scopeCheck: process.env.WEB_SCOPE_CHECK !== "false",
-    /** Reuse the in-memory shared agent for the lifetime of `pnpm web` */
-    reuseAgent: process.env.WEB_REUSE_AGENT !== "false",
     /**
-     * Keep chat context across page reloads (localStorage session + same agent).
-     * Default false: each reload POST /api/session resets the agent and clears RAM.
+     * While web server runs: git pull + incremental LanceDB index in background.
+     * Default on — disable if you use crontab/PM2 for the same job (don't run both).
      */
-    persistChatContext: process.env.WEB_PERSIST_CHAT_CONTEXT === "true",
-    /** Optional: resume a specific agent id (same server process / in-memory store only) */
-    agentId: process.env.WEB_AGENT_ID?.trim() || undefined,
-    /**
-     * If the agent ends with a status-only reply (no tools), send one follow-up.
-     * Costs a second run — set false to save quota.
-     */
-    autoFollowUp: process.env.WEB_AUTO_FOLLOWUP !== "false",
+    autoIndex: process.env.WEB_AUTO_INDEX !== "false",
+    /** Interval between background index runs (default 10 minutes). */
+    autoIndexIntervalMs: Number(process.env.WEB_AUTO_INDEX_MINUTES ?? 10) * 60_000,
   },
   mcp: {
     /** Default / max results for sfl_search (keeps tool payloads small) */

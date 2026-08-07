@@ -28,29 +28,17 @@ function scrollToBottom(force = false) {
   }
 }
 
-async function initSession(persistChatContext = false) {
-  if (persistChatContext) {
-    const existing = localStorage.getItem(SESSION_KEY);
-    if (existing) {
-      sessionId = existing;
-      return;
-    }
-  } else {
-    localStorage.removeItem(SESSION_KEY);
-  }
+async function initSession() {
+  localStorage.removeItem(SESSION_KEY);
 
   const res = await fetch("/api/session", { method: "POST" });
   const data = await res.json();
   sessionId = data.sessionId;
-
-  if (persistChatContext) {
-    localStorage.setItem(SESSION_KEY, sessionId);
-  }
 }
 
 async function ensureSession() {
   if (sessionId) return sessionId;
-  await initSession(false);
+  await initSession();
   return sessionId;
 }
 
@@ -61,28 +49,6 @@ function mergeAssistantText(current, incoming) {
   if (incoming.startsWith(current)) return incoming;
   if (current.endsWith(incoming)) return current;
   return current + incoming;
-}
-
-function resolveToolLabel(name, args) {
-  if (name && name.startsWith("sfl_")) return name;
-  if (!args || typeof args !== "object") return name === "mcp" ? null : name;
-
-  const a = args;
-  const candidates = [
-    a.toolName,
-    a.tool,
-    a.name,
-    a.tool_name,
-    a?.input?.tool,
-    a?.input?.toolName,
-    a?.params?.name,
-  ];
-
-  for (const c of candidates) {
-    if (typeof c === "string" && (c.startsWith("sfl_") || c.length > 2)) return c;
-  }
-
-  return name === "mcp" ? null : name;
 }
 
 function formatChatTime(date) {
@@ -271,9 +237,9 @@ function escapeToolKey(key) {
   return key.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function updateTool(ui, { name, status, label, args }) {
+function updateTool(ui, { name, status, label }) {
   ensureActivity(ui);
-  const displayName = label || resolveToolLabel(name, args) || name || "tool";
+  const displayName = label || name || "tool";
   showActivity(ui, "Đang tra cứu...");
 
   if (!ui.pills) return;
@@ -326,21 +292,6 @@ function collapseActivitySummary(ui) {
   if (ui.pills) ui.pills.hidden = true;
 }
 
-/** Progress lines the model sometimes emits before tools — not a final answer. */
-function looksLikeStatusPreamble(text) {
-  const t = text.trim();
-  if (!t || t.length > 320) return false;
-  const normalized = t.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
-  return (
-    /^(dang|looking|searching|checking|let me|i('ll| will)|toi se|minh se|de minh)\b/.test(
-      normalized,
-    ) ||
-    /\b(dang\s+(tra\s*cuu|tim|xu\s*ly|soan|phan\s*tich)|tra\s*cuu|looking up|searching for)\b/.test(
-      normalized,
-    )
-  );
-}
-
 function showWelcome() {
   if (chatEl.children.length > 0) return;
   const el = document.createElement("div");
@@ -370,15 +321,14 @@ async function loadHealth() {
     const parts = [];
     if (data.cursorApiKey) parts.push("Cursor OK");
     else parts.push("Thiếu API key");
-    if (data.agent?.warmed) parts.push("Agent warm");
-    else parts.push("Agent cold");
+    parts.push(`${data.agent?.sessionCount ?? 0} session`);
     if (data.ollama) parts.push("Ollama OK");
     else parts.push("Ollama off");
     parts.push(`${(data.indexedRecords ?? 0).toLocaleString()} chunks`);
 
     statusText.textContent = parts.join(" · ");
     statusDot.className = `dot ${data.cursorApiKey ? "ok" : "err"}`;
-    await initSession(Boolean(data.agent?.persistChatContext));
+    await initSession();
   } catch {
     statusText.textContent = "Offline";
     statusDot.className = "dot err";
@@ -478,34 +428,8 @@ async function sendMessage(message) {
         }
 
         try {
-          if (event === "retry") {
-            assistantText = "";
-            finalResult = "";
-            thinkingText = "";
-            toolRunning = 0;
-            toolsUsed = false;
-            streamFailed = false;
-            ui.hasText = false;
-            ui.receivedAt = null;
-            ui.assistantTime.hidden = true;
-            ui.toolCounts.clear();
-            ui.copyText = "";
-            ui.body.innerHTML = "";
-            ui.assistant.hidden = true;
-            ui.assistant.classList.remove("pending", "error");
-            if (ui.pills) ui.pills.innerHTML = "";
-            showActivity(ui, data.message || "Đang gọi lại tools...");
-            continue;
-          }
-
           if (event === "text" && data.delta) {
             assistantText = mergeAssistantText(assistantText, data.delta);
-            // Status preamble → activity only (not a finished answer bubble).
-            if (looksLikeStatusPreamble(assistantText) && !streamFinished) {
-              showActivity(ui, assistantText);
-              continue;
-            }
-
             ui.assistant.hidden = false;
             ui.hasText = true;
             ui.assistant.classList.add("pending");
@@ -569,7 +493,7 @@ async function sendMessage(message) {
             }
             markReceived(ui);
             ui.assistant.classList.remove("pending");
-            if (data.status === "error" || data.status === "cancelled" || data.incomplete) {
+            if (data.status === "error" || data.status === "cancelled") {
               streamFailed = true;
               ui.assistant.classList.add("error");
             }
