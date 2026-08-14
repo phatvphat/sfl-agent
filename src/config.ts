@@ -64,13 +64,6 @@ export const config = {
   web: {
     host: process.env.WEB_HOST ?? "127.0.0.1",
     port: Number(process.env.WEB_PORT ?? 3847),
-    /**
-     * While web server runs: git pull + incremental LanceDB index in background.
-     * Default on — disable if you use crontab/PM2 for the same job (don't run both).
-     */
-    autoIndex: process.env.WEB_AUTO_INDEX !== "false",
-    /** Interval between background index runs (default 10 minutes). */
-    autoIndexIntervalMs: Number(process.env.WEB_AUTO_INDEX_MINUTES ?? 10) * 60_000,
   },
   mcp: {
     /** Default / max results for sfl_search (keeps tool payloads small) */

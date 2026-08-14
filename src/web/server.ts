@@ -7,7 +7,6 @@ import { checkOllamaHealth } from "../embeddings/ollama.js";
 import { localAgentStore } from "./cursor-setup.js";
 import { purgeFinishedRun } from "./memory-local-agent-store.js";
 import { closeAllSessions, beginBrowserSession, getWarmupStatus, sendChatMessage } from "./session.js";
-import { startAutoIndex, stopAutoIndex } from "./auto-index.js";
 
 const PUBLIC_DIR = join(config.projectRoot, "public");
 
@@ -270,11 +269,8 @@ export async function startWebServer(): Promise<void> {
 
   console.log(`SFL Agent web UI: http://${config.web.host}:${config.web.port}`);
 
-  startAutoIndex();
-
   const shutdown = async () => {
     console.log("\nShutting down...");
-    stopAutoIndex();
     await closeAllSessions();
     server.close();
     process.exit(0);

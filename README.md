@@ -191,7 +191,7 @@ API responses được cache 5 phút trong memory để giảm số lần gọi.
 
 ## Deploy lên server
 
-Xem **[docs/DEPLOY.md](docs/DEPLOY.md)** — cài Node + Ollama, copy source/index, systemd, **auto-index trong web** (hoặc crontab), firewall LAN.
+Xem **[docs/DEPLOY.md](docs/DEPLOY.md)** — cài Node + Ollama, copy source/index, systemd, **crontab `pnpm index` mỗi 10 phút**, firewall LAN.
 
 Tóm tắt:
 
